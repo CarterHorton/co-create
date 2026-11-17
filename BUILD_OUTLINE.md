@@ -90,11 +90,24 @@ Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
    its box, else the first line of its earliest note.
 3. **Order.** Arrows between sections order the sections; arrows inside a
    section order its notes. Ties and arrow cycles fall back to creation time.
-4. **Connections.** Every arrow is written under the note it starts from,
-   linking across sections by anchor (`→ [2. Billing](#2-billing): Charge card`).
-5. **Output.** Title, an overview table (sections, note counts, what each
-   comes after), one `##` section per group, and a "Suggested order of work"
-   checklist. Same board in → same file out.
+4. **Layout.** A fan-out (one note → several notes with no other parent, e.g.
+   "Authentication Options" → GitHub / Google / Email) is nested under its
+   parent instead of listed twice. A section whose notes form one chain is
+   written as numbered steps. Remaining arrows are written under their note
+   (`→ [2. Billing](#2-billing): Charge card`); an arrow back to an earlier
+   note is a loop, written on the note's line (`(↺ back to step 2: …)`).
+   A text label that repeats a named section's name is its title, not a note.
+5. **Text.** Line breaks people add inside boxes are joined into one line;
+   lines written as a list (`- a`, `1. b`) stay sub-items.
+6. **Output.** Title, a "How to read this" key covering only the notation
+   used, an overview (sections, notes, how each connection is shown, what
+   comes after what), one `##` section per group, and an order of work that
+   says plainly when sections are independent. Same board in → same file out.
+
+Checked with a blind test: a fresh agent given only the exported file of a
+real board, no context. Fixes from that test removed duplicated notes, broken
+lines and a misleading loop; what it still asks for (stack, scope,
+acceptance criteria) has to come from notes on the board.
 
 Users steer the result by naming sections explicitly, or by arranging the
 board: move notes together or apart, draw a box around notes to force a

@@ -142,18 +142,105 @@ describe('buildMarkdown', () => {
     const md = buildMarkdown('Launch plan', shapes, { now: new Date('2026-11-17T00:00:00Z') })
     expect(md).toContain('# Launch plan')
     expect(md).toContain('on 2026-11-17')
+    expect(md).toContain('**How to read this:**')
+    expect(md).toContain('2 sections, 2 notes, 1 connection.')
     expect(md).toContain('| 1 | [Auth](#1-auth) | 1 | — |')
     expect(md).toContain('| 2 | [Billing](#2-billing) | 1 | 1 |')
-    expect(md).toContain('## 1. Auth')
-    expect(md).toContain('- Email login\n  magic link only\n  - → [2. Billing](#2-billing): Charge card')
+    expect(md).toContain('## 1. Auth\n\n_Leads to: [2. Billing](#2-billing)_')
+    // Line breaks inside a box are joined into one line.
+    expect(md).toContain('- Email login magic link only\n  - → [2. Billing](#2-billing): Charge card')
     expect(md).toContain('_Comes after: [1. Auth](#1-auth)_')
-    expect(md).toContain('- [ ] 2. Billing (1 note)')
+    expect(md).toContain('## Order of work\n\nBuild the sections in number order')
+    expect(md).toContain('1. [Auth](#1-auth) — can start right away\n2. [Billing](#2-billing) — after 1')
+  })
+
+  it('reads a real board the way a person would (replica of a hand-made test board)', () => {
+    const named = (id: string, x: number, y: number, text: string, section: string, type = 'box') => {
+      const n = note(id, x, y, text, type)
+      n.props.section = section
+      return n
+    }
+    const shapes = [
+      named('authLabel', 200, 40, 'Authentication', 'Authentication', 'text'),
+      named('opts', 100, 250, 'Authentication Options', 'Authentication'),
+      named('gh', 320, 150, 'Auth through GitHub', 'Authentication'),
+      named('gg', 320, 250, 'Auth through Google', 'Authentication'),
+      named('em', 320, 360, 'Auth through Email', 'Authentication'),
+      arrow('a1', 'opts', 'gh'),
+      arrow('a2', 'opts', 'gg'),
+      arrow('a3', 'opts', 'em'),
+      named('board', 610, 200, 'Create new board', 'Create New Idea'),
+      named('blocks', 750, 190, 'Create blocks \nand\nsticky notes!', 'Create New Idea'),
+      named('conn', 920, 190, 'Create Connections\nAnd\nGraph Ideas Together', 'Create New Idea'),
+      named('export', 1090, 190, 'Export as markdown\nfie for your\nAgents!!!', 'Create New Idea'),
+      arrow('b1', 'board', 'blocks'),
+      arrow('b2', 'blocks', 'conn'),
+      arrow('b3', 'conn', 'blocks'),
+      arrow('b4', 'conn', 'export'),
+    ]
+    const md = buildMarkdown('Test board', shapes, { now: new Date('2026-11-17') })
+
+    // The label that repeats the section name is the title, not a note.
+    expect(md).not.toMatch(/^- Authentication$/m)
+    expect(md).toContain('| 1 | [Authentication](#1-authentication) | 4 | — |')
+    // Every connection is accounted for, even the ones shown by layout.
+    expect(md).toContain('2 sections, 8 notes, 7 connections (3 shown by indenting, 3 by step order, 1 as ↺).')
+    // Fan-out is nested once, not listed twice.
+    expect(md).toContain(
+      '## 1. Authentication\n\n- Authentication Options\n  - Auth through GitHub\n  - Auth through Google\n  - Auth through Email\n\n',
+    )
+    // A chain is numbered steps; line breaks are joined; the loop points back to its step.
+    expect(md).toContain(
+      [
+        '## 2. Create New Idea',
+        '',
+        '1. Create new board',
+        '2. Create blocks and sticky notes!',
+        '3. Create Connections And Graph Ideas Together (↺ back to step 2: Create blocks and sticky notes!)',
+        '4. Export as markdown fie for your Agents!!!',
+      ].join('\n'),
+    )
+    // Unconnected sections are called out as independent.
+    expect(md).toContain("No arrows connect the sections, so they don't depend on each other: build them in any order")
+    // The key explains only what's used: steps, indents and loops, but no → on this board.
+    expect(md).toContain('**How to read this:** Numbered notes are steps')
+    expect(md).not.toContain('starting with `→`')
+    expect(md).not.toMatch(/ +$/m) // no trailing spaces
+  })
+
+  it('numbers a chain but not a fan-out or a partial chain', () => {
+    const chain = buildMarkdown(
+      'X',
+      [note('a', 0, 0, 'A'), note('b', 120, 0, 'B'), note('c', 240, 0, 'C'), arrow('1', 'a', 'b'), arrow('2', 'b', 'c')],
+      { now: new Date('2026-01-01') },
+    )
+    expect(chain).toContain('1. B\n2. C')
+    const partial = buildMarkdown(
+      'X',
+      [note('t', 0, -80, 'Plan', 'text'), note('a', 0, 0, 'A'), note('b', 120, 0, 'B'), note('c', 240, 0, 'C'), arrow('1', 'a', 'b')],
+      { now: new Date('2026-01-01') },
+    )
+    expect(partial).toContain('- A\n  - → B\n- B\n- C')
+  })
+
+  it('keeps lines written as a list as sub-items', () => {
+    const md = buildMarkdown('X', [note('t', 0, -80, 'Plan', 'text'), note('n', 0, 0, 'Login page\n- email field\n- password field')], {
+      now: new Date('2026-01-01'),
+    })
+    expect(md).toContain('- Login page\n  - email field\n  - password field')
+  })
+
+  it('marks an arrow to an earlier section as a loop', () => {
+    const shapes = [note('a', 0, 0, 'Build'), note('b', 2000, 0, 'Ship'), arrow('1', 'a', 'b'), arrow('2', 'b', 'a')]
+    const md = buildMarkdown('X', shapes, { now: new Date('2026-01-01') })
+    expect(md).toContain('- Ship ↺ back to [1. Build](#1-build)')
   })
 
   it('counts a note that became its section title', () => {
     const md = buildMarkdown('X', [note('solo', 0, 0, 'Lone idea')], { now: new Date('2026-01-01') })
     expect(md).toContain('| 1 | [Lone idea](#1-lone-idea) | 1 | — |')
     expect(md).toContain('1 section, 1 note, 0 connections.')
+    expect(md).toContain('One section: work through [Lone idea](#1-lone-idea) from top to bottom.')
   })
 
   it('handles an empty board', () => {
