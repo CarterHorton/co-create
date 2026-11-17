@@ -75,9 +75,9 @@ export function diffShapes(prev: SnapshotShape[], next: SnapshotShape[]): BoardD
     if (Math.round(p.x) !== Math.round(n.x) || Math.round(p.y) !== Math.round(n.y)) d.moved.push(n.id)
     if (Math.round(p.width) !== Math.round(n.width) || Math.round(p.height) !== Math.round(n.height)) d.resized.push(n.id)
     if (!same(p.props.text, n.props.text)) d.edited.push(n.id)
-    if (!same(p.props.section, n.props.section)) d.grouped.push(n.id)
-    const { text: _pt, section: _ps, ...pr } = p.props
-    const { text: _nt, section: _ns, ...nr } = n.props
+    if (!same(p.props.section, n.props.section) || !same(p.props.subsection, n.props.subsection)) d.grouped.push(n.id)
+    const { text: _pt, section: _ps, subsection: _pss, ...pr } = p.props
+    const { text: _nt, section: _ns, subsection: _nss, ...nr } = n.props
     if (!same(sortKeys(pr), sortKeys(nr))) d.restyled.push(n.id)
   }
   return d

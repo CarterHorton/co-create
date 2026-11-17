@@ -42,10 +42,13 @@ type ShapeType = 'sticky' | 'box' | 'text' | 'arrow'
 props: {
   text?: string
   color?: 'white' | 'gray' | 'blue' | 'black'      // stickies
+  textColor?: string                                 // any note, box or label (INK_COLORS name)
+  fill?: string; stroke?: string                     // boxes: FILL_COLORS / INK_COLORS name
   from?: string; to?: string                         // arrows: shape ids
   route?: 'straight' | 'elbow' | 'curve'             // arrows
   bend?: { x: number; y: number }                    // arrows: handle offset
   section?: string                                   // named section, set from the selection bar
+  subsection?: string                                // a part of that section (Front-end › Login page)
   originalCreatedAt?: string                         // set when a version restore re-adds a shape
 }
 
@@ -82,7 +85,8 @@ Revisit only if users want to push a board into an actual repo.
 Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
 
 1. **Sections.** Notes you assigned to a named section (select them → type a
-   name in the bottom bar → Assign) form that section wherever they are.
+   name in the bar above them → Assign) form that section wherever they are.
+   Notes also given a subsection form a `###` part of that section.
    Every other note is grouped by proximity: edges within 60 px are chained
    into one section (so a row of stickies is one group). Overlap counts, so
    drawing a box around notes groups them. Empty notes are ignored.
@@ -168,6 +172,11 @@ while you browse history.
       section such as "Authentication" from the selection bar; they become
       one section wherever they are, tagged on the board. Ungroup returns
       them to proximity grouping.
+- [x] Subsections: give a named section parts (Front-end › Login page,
+      Dashboard) with the selection bar's second field. The overlay outlines
+      each part inside its section; the export writes each as a `###`
+      heading (ordered by arrows between parts, then time), after the notes
+      that apply to the whole section. Verified by `tests/subsections.spec.ts`.
 - [x] Or steer by layout: move notes together or apart, draw a box around
       notes to force a group, add a text label to name it
 - [x] **Done when:** sections match what a person would draw circles around —
@@ -199,6 +208,21 @@ while you browse history.
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no
       account, no calls, Markdown export works. Linked from every sign-in
       prompt and the landing page. Verified by `tests/try.spec.ts`.
+- [x] **Closable History**: the History tab starts open and has a ×; a
+      History button reopens it. It stays mounted while closed. On guest
+      boards (History is the only tab) closing it folds the sidebar to a
+      thin rail; on shared boards the Call tab stays. Verified by
+      `tests/sidebar.spec.ts`.
+- [x] **PDF export**: Export dialog → **PDF** downloads the whole board
+      (every shape, not just what's on screen) as one page. Redrawn from the
+      shapes onto a canvas capped at 1600 px on its longest side (never
+      upscaled, no hi-DPI), saved as one JPEG inside a hand-written PDF —
+      no PDF library. `src/components/board/pdf.ts`; verified by
+      `pdf.test.ts` and `tests/pdf.spec.ts`.
+- [x] **Colors**: select shapes → **Color** in the selection bar: text color
+      for notes, boxes and labels; fill and border for boxes (a dark fill
+      turns default text white). Palette in `shapes.ts`. Verified by
+      `tests/colors.spec.ts`.
 - [x] **Arrow styles**: straight, elbow, curve. Select an arrow to switch its
       style or drag its handle to reshape it (curve passes through the
       handle; elbow handle slides the middle segment).

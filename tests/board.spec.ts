@@ -65,7 +65,8 @@ test('a sticky added by one user appears, moves, and updates for the other', asy
   await a.page.getByTestId('shape-box').click()
   await expect(b.page.getByTestId('board-arrow')).toHaveCount(1, { timeout: 10_000 })
 
-  // B sees A's live cursor.
+  // B sees A's live cursor (clear the selection first so its bar isn't under the mouse).
+  await a.page.keyboard.press('Escape')
   await a.page.mouse.move(500, 450, { steps: 5 })
   await expect(b.page.getByTestId('peer-cursor')).toHaveCount(1, { timeout: 10_000 })
 

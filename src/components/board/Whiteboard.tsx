@@ -11,11 +11,11 @@
  * Shift-click shapes to select; drag a selected shape to move the whole
  * selection. Middle mouse or Space+drag pans, wheel scrolls, Ctrl/⌘+wheel zooms
  * in 25% steps. Double-click empty space for a sticky, double-click a shape to
- * edit its text. With shapes selected, the bottom bar assigns them to a named
+ * edit its text. With shapes selected, a bar just above them assigns them to a named
  * section. Delete removes the selection; ⌘Z / ⇧⌘Z undo/redo; ⌘A selects all.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { getUserColor } from 'deepspace'
 import {
   ArrowUpRight,
@@ -25,6 +25,7 @@ import {
   Tag,
   Ungroup,
   Minus,
+  Palette,
   Slash,
   Spline,
   MousePointer2,
@@ -39,19 +40,25 @@ import {
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
-import { buildSections, clusterByProximity, sectionNameOf } from '@/spec/buildSpec'
+import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
   MIN_SIZE,
+  FILL_COLORS,
+  INK_COLORS,
   STICKY_COLORS,
   arrowBend,
   arrowGeometry,
   arrowRoute,
+  fillOf,
+  shapeColors,
   shapeText,
   stickyColor,
+  strokeOf,
+  textColorOf,
   type StickyColor,
 } from './shapes'
 
@@ -148,18 +155,30 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const active = activeId ? byId.get(activeId) : undefined
   const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
   const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
+  /** Section names on the board → the subsection names used in each (first spelling wins). */
   const sectionNames = useMemo(() => {
-    const seen = new Map<string, string>()
+    const seen = new Map<string, { name: string; subs: Map<string, string> }>()
     for (const s of shapes) {
       const n = sectionNameOf(s)
-      if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n)
+      if (!n) continue
+      if (!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), { name: n, subs: new Map() })
+      const sub = subsectionNameOf(s)
+      const subs = seen.get(n.toLowerCase())!.subs
+      if (sub && !subs.has(sub.toLowerCase())) subs.set(sub.toLowerCase(), sub)
     }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+    const sort = (xs: string[]) => xs.sort((a, b) => a.localeCompare(b))
+    return new Map([...seen.values()].map((v) => [v.name, sort([...v.subs.values()])]))
   }, [shapes])
   const selectedNotes = selectedShapes.filter((x) => x.type !== 'arrow')
-  const assignSection = (name: string | null) =>
+  const assignSection = (name: string | null, subsection: string | null = null) =>
     batch(() => {
-      for (const x of selectedNotes) update(x.id, { section: name })
+      for (const x of selectedNotes) update(x.id, { section: name, subsection: name ? subsection : null })
+    })
+
+  /** Text color applies to any note, box or label; fill and border only to boxes. */
+  const restyle = (key: 'textColor' | 'fill' | 'stroke', value: string | null) =>
+    batch(() => {
+      for (const x of selectedNotes) if (key === 'textColor' || x.type === 'box') update(x.id, { [key]: value })
     })
 
   const toWorld = useCallback(
@@ -395,6 +414,16 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       if (pendingCursor.current) updateState?.({ cursor: pendingCursor.current })
     })
   }
+
+  // Viewport size, so the selection bar can stay on screen.
+  const [viewSize, setViewSize] = useState({ width: 0, height: 0 })
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setViewSize({ width: el.clientWidth, height: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // ── Wheel (needs a non-passive listener to preventDefault) ─────────────
 
@@ -666,13 +695,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </span>
       </div>
 
-      {canWrite && selectedNotes.length > 0 && !editingId && (
+      {canWrite && selectedNotes.length > 0 && !editingId && tool === 'select' && (
         <SelectionBar
           key={selectedNotes.map((x) => x.id).join(',')}
+          anchor={{
+            left: cam.x + Math.min(...selectedNotes.map((x) => x.x)) * cam.zoom,
+            top: cam.y + Math.min(...selectedNotes.map((x) => x.y)) * cam.zoom,
+            bottom: cam.y + Math.max(...selectedNotes.map((x) => x.y + x.height)) * cam.zoom,
+          }}
+          view={viewSize}
           shapes={selectedNotes}
           sectionNames={sectionNames}
-          onAssign={(name) => assignSection(name)}
+          onAssign={(name, sub) => assignSection(name, sub)}
           onUngroup={() => assignSection(null)}
+          onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
         />
       )}
@@ -921,7 +957,7 @@ function ShapeView({
   onDone,
 }: ShapeViewProps) {
   const text = shapeText(s)
-  const sticky = s.type === 'sticky' ? STICKY_COLORS[stickyColor(s)] : null
+  const colors = shapeColors(s)
 
   return (
     <div
@@ -945,8 +981,7 @@ function ShapeView({
         top: s.y,
         width: s.width,
         height: s.height,
-        background: sticky?.bg,
-        color: sticky?.fg,
+        ...colors,
       }}
     >
       {editing ? (
@@ -975,6 +1010,7 @@ function ShapeView({
           className="pointer-events-none absolute bottom-full left-0 mb-1.5 max-w-full truncate border border-royal/50 bg-background px-1 font-mono text-[10px] leading-4 text-foreground"
         >
           {sectionNameOf(s)}
+          {subsectionNameOf(s) && ` › ${subsectionNameOf(s)}`}
         </span>
       )}
       {showHandles && canWrite && !editing && (
@@ -1100,45 +1136,114 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
           )
         })
       })}
+      {sections.flatMap((sec) =>
+        sec.subsections.flatMap((sub) => {
+          const members = [...sub.ids].map((id) => byId.get(id)).filter((s): s is BoardShape => !!s)
+          return clusterByProximity(members, 200).map((clump, i) => {
+            const subPad = pad / 2
+            const x = Math.min(...clump.map((s) => s.x)) - subPad
+            const y = Math.min(...clump.map((s) => s.y)) - subPad
+            const w = Math.max(...clump.map((s) => s.x + s.width)) - x + subPad
+            const h = Math.max(...clump.map((s) => s.y + s.height)) - y + subPad
+            return (
+              <div
+                key={`${sec.anchor}/${sub.anchor}:${i}`}
+                data-testid="subsection-outline"
+                data-subsection={sub.title}
+                className="pointer-events-none absolute border border-dashed border-foreground/60"
+                style={{ left: x, top: y, width: w, height: h }}
+              >
+                <span
+                  className="absolute right-0 origin-bottom-right whitespace-nowrap border border-foreground bg-background px-1 py-px font-mono text-[11px] font-semibold"
+                  style={{ bottom: '100%', transform: `scale(${1 / zoom})` }}
+                >
+                  {sec.index}.{sub.index} {sub.title}
+                </span>
+              </div>
+            )
+          })
+        }),
+      )}
     </>
   )
 }
 
 /**
- * Floating bar for the current selection: name a section and assign the
- * selected shapes to it (they become one section in the export, wherever
- * they sit), remove them from their section, or delete them.
+ * Floating bar for the current selection: name a section (and optionally a
+ * subsection within it, e.g. Front-end › Login page) and assign the selected
+ * shapes to it (they become one section in the export, wherever they sit),
+ * remove them from their section, or delete them.
  */
+/** Space between the selection and the bar: clears the section tag drawn above a note. */
+const BAR_GAP = 28
+/** Keep the bar below the toolbar row. */
+const BAR_MIN_TOP = 72
+
 function SelectionBar({
+  anchor,
+  view,
   shapes,
   sectionNames,
   onAssign,
   onUngroup,
+  onRestyle,
   onDelete,
 }: {
+  /** The selection's on-screen left edge, top and bottom (viewport px). */
+  anchor: { left: number; top: number; bottom: number }
+  /** Viewport size, to keep the bar on screen. */
+  view: { width: number; height: number }
   shapes: BoardShape[]
-  sectionNames: string[]
-  onAssign: (name: string) => void
+  /** Section name → subsection names already used in it. */
+  sectionNames: Map<string, string[]>
+  onAssign: (name: string, subsection: string | null) => void
   onUngroup: () => void
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
   onDelete: () => void
 }) {
+  const [colorsOpen, setColorsOpen] = useState(false)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
+  const above = anchor.top - BAR_GAP - size.height
+  const below = above < BAR_MIN_TOP
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
+  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
+  const left = clamp(anchor.left, 16, view.width - size.width - 16)
   const current = new Set(shapes.map(sectionNameOf))
+  const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
+  const [sub, setSub] = useState(current.size === 1 && currentSub.size === 1 ? [...currentSub][0] : '')
   const anyAssigned = shapes.some((x) => sectionNameOf(x))
+  const subNames = [...sectionNames].find(([n]) => n.toLowerCase() === name.trim().toLowerCase())?.[1] ?? []
   const assign = () => {
-    if (name.trim()) onAssign(name.trim())
+    if (name.trim()) onAssign(name.trim(), sub.trim() || null)
   }
+  const field = 'h-8 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50'
   return (
     <div
+      ref={barRef}
       data-testid="selection-bar"
-      className="absolute bottom-4 left-4 z-20 flex items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      data-placement={below ? 'below' : 'above'}
+      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      style={{ left, top }}
       onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
         {shapes.length} selected
       </span>
       <form
-        className="flex items-center gap-1"
+        className="flex flex-wrap items-center gap-1"
         onSubmit={(e) => {
           e.preventDefault()
           assign()
@@ -1151,12 +1256,31 @@ function SelectionBar({
           list="board-section-names"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Section, e.g. Authentication"
+          placeholder="Section, e.g. Front-end"
           maxLength={80}
-          className="h-8 w-52 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50"
+          className={cn(field, 'w-40')}
         />
         <datalist id="board-section-names">
-          {sectionNames.map((n) => (
+          {[...sectionNames.keys()].map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+        <span aria-hidden className="font-mono text-xs text-muted-foreground">
+          ›
+        </span>
+        <input
+          data-testid="subsection-name-input"
+          aria-label="Subsection name (optional)"
+          list="board-subsection-names"
+          value={sub}
+          onChange={(e) => setSub(e.target.value)}
+          disabled={!name.trim()}
+          placeholder="Subsection (optional)"
+          maxLength={80}
+          className={cn(field, 'w-40 disabled:opacity-40')}
+        />
+        <datalist id="board-subsection-names">
+          {subNames.map((n) => (
             <option key={n} value={n} />
           ))}
         </datalist>
@@ -1181,6 +1305,19 @@ function SelectionBar({
         </button>
         </Hint>
       )}
+      <button
+        type="button"
+        data-testid="selection-colors"
+        aria-expanded={colorsOpen}
+        onClick={() => setColorsOpen((v) => !v)}
+        className={cn(
+          'flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em]',
+          colorsOpen ? 'bg-foreground text-background' : 'hover:bg-royal/20',
+        )}
+      >
+        <Palette className="size-3.5" /> Color
+      </button>
+      {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"
@@ -1192,6 +1329,78 @@ function SelectionBar({
         <Trash2 className="size-3.5" />
       </button>
       </Hint>
+    </div>
+  )
+}
+
+/**
+ * Colors for the selection: text color for every selected note, box and
+ * label; fill and border for selected boxes. "Default" clears the choice.
+ */
+function ColorPanel({
+  shapes,
+  onRestyle,
+  below,
+}: {
+  /** The bar sits below the selection: open downward, away from it. */
+  below: boolean
+  shapes: BoardShape[]
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
+}) {
+  const boxes = shapes.filter((x) => x.type === 'box')
+  /** The value all of `list` share, or undefined when they differ. */
+  const shared = <T,>(list: BoardShape[], of: (s: BoardShape) => T) => {
+    const vals = new Set(list.map(of))
+    return vals.size === 1 ? [...vals][0] : undefined
+  }
+  const rows: { key: 'textColor' | 'fill' | 'stroke'; label: string; table: Record<string, { value: string; label: string }>; current: string | null | undefined }[] = [
+    { key: 'textColor', label: 'Text', table: INK_COLORS, current: shared(shapes, textColorOf) },
+  ]
+  if (boxes.length) {
+    rows.push(
+      { key: 'fill', label: 'Box fill', table: FILL_COLORS, current: shared(boxes, fillOf) },
+      { key: 'stroke', label: 'Box border', table: INK_COLORS, current: shared(boxes, strokeOf) },
+    )
+  }
+  return (
+    <div
+      data-testid="color-panel"
+      className={cn('absolute left-0 flex flex-col', below ? 'top-full mt-2' : 'bottom-full mb-2', 'gap-1.5 border border-foreground bg-background p-2 shadow-[4px_4px_0_0_#000]')}
+    >
+      {rows.map((row) => (
+        <div key={row.key} className="flex items-center gap-1" role="group" aria-label={row.label}>
+          <span className="w-20 font-mono text-[11px] font-semibold uppercase">{row.label}</span>
+          <button
+            type="button"
+            data-testid={`${row.key}-default`}
+            aria-label={`${row.label}: default`}
+            aria-pressed={row.current === null}
+            onClick={() => onRestyle(row.key, null)}
+            className={cn(
+              'h-5 border border-foreground px-1 font-mono text-[10px] hover:bg-royal/20',
+              row.current === null && 'outline outline-2 outline-offset-1 outline-royal/50',
+            )}
+          >
+            Default
+          </button>
+          {Object.entries(row.table).map(([name, c]) => (
+            <button
+              key={name}
+              type="button"
+              data-testid={`${row.key}-${name}`}
+              aria-label={`${row.label}: ${c.label}`}
+              title={c.label}
+              aria-pressed={row.current === name}
+              onClick={() => onRestyle(row.key, name)}
+              className={cn(
+                'size-5 border border-foreground',
+                row.current === name && 'outline outline-2 outline-offset-1 outline-royal/50',
+              )}
+              style={{ background: c.value }}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   )
 }
