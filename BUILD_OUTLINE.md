@@ -208,6 +208,12 @@ while you browse history.
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no
       account, no calls, Markdown export works. Linked from every sign-in
       prompt and the landing page. Verified by `tests/try.spec.ts`.
+- [x] **PDF export**: Export dialog → **PDF** downloads the whole board
+      (every shape, not just what's on screen) as one page. Redrawn from the
+      shapes onto a canvas capped at 1600 px on its longest side (never
+      upscaled, no hi-DPI), saved as one JPEG inside a hand-written PDF —
+      no PDF library. `src/components/board/pdf.ts`; verified by
+      `pdf.test.ts` and `tests/pdf.spec.ts`.
 - [x] **Colors**: select shapes → **Color** in the selection bar: text color
       for notes, boxes and labels; fill and border for boxes (a dark fill
       turns default text white). Palette in `shapes.ts`. Verified by

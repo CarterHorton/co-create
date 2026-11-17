@@ -130,6 +130,9 @@ export interface ArrowGeometry {
   handle?: Pt
   /** Which handle axes move it ('x' = elbow column, 'y' = elbow row, 'xy' = curve). */
   axis?: 'x' | 'y' | 'xy'
+  /** Where the arrowhead sits, and a point its last segment comes from (for drawing the head). */
+  tip: Pt
+  tail: Pt
 }
 
 export function arrowGeometry(
@@ -147,7 +150,7 @@ export function arrowGeometry(
     const p2 = edgePoint(to, h)
     // Control point chosen so the quadratic passes through h at t = 0.5.
     const c = { x: 2 * h.x - (p0.x + p2.x) / 2, y: 2 * h.y - (p0.y + p2.y) / 2 }
-    return { d: `M ${p0.x} ${p0.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`, handle: h, axis: 'xy' }
+    return { d: `M ${p0.x} ${p0.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`, handle: h, axis: 'xy', tip: p2, tail: c }
   }
 
   if (route === 'elbow') {
@@ -160,6 +163,8 @@ export function arrowGeometry(
         d: `M ${sx} ${fc.y} H ${midX} V ${tc.y} H ${ex}`,
         handle: { x: midX, y: (fc.y + tc.y) / 2 },
         axis: 'x',
+        tip: { x: ex, y: tc.y },
+        tail: { x: midX, y: tc.y },
       }
     }
     const midY = (fc.y + tc.y) / 2 + bend.y
@@ -169,10 +174,12 @@ export function arrowGeometry(
       d: `M ${fc.x} ${sy} V ${midY} H ${tc.x} V ${ey}`,
       handle: { x: (fc.x + tc.x) / 2, y: midY },
       axis: 'y',
+      tip: { x: tc.x, y: ey },
+      tail: { x: tc.x, y: midY },
     }
   }
 
   const p0 = edgePoint(from, tc)
   const p2 = edgePoint(to, fc)
-  return { d: `M ${p0.x} ${p0.y} L ${p2.x} ${p2.y}` }
+  return { d: `M ${p0.x} ${p0.y} L ${p2.x} ${p2.y}`, tip: p2, tail: p0 }
 }

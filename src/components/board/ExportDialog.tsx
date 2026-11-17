@@ -1,10 +1,11 @@
-/** Preview, copy, or download the board as a Markdown spec (built locally, no AI). */
+/** Preview, copy, or download the board as a Markdown spec (built locally, no AI), or the whole board as a PDF. */
 
 import { useMemo, useState } from 'react'
-import { Bot, Check, Copy, Download } from 'lucide-react'
+import { Bot, Check, Copy, Download, FileImage } from 'lucide-react'
 import { Button, Modal } from '@/components/ui'
 import { buildMarkdown, specFileName } from '@/spec/buildSpec'
 import type { BoardShape } from './types'
+import { boardToPdf } from './pdf'
 
 export interface SpecPublisher {
   publish: (spec: { title: string; markdown: string }) => Promise<void>
@@ -39,13 +40,30 @@ export function ExportDialog({
     }
   }
 
-  function download() {
-    const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
+  const pdfName = fileName.replace(/\.md$/, '.pdf')
+  const [pdfState, setPdfState] = useState<'idle' | 'busy' | 'error'>('idle')
+
+  function save(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = fileName
+    a.download = name
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 0)
+  }
+
+  function download() {
+    save(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), fileName)
+  }
+
+  async function downloadPdf() {
+    setPdfState('busy')
+    try {
+      save(await boardToPdf(title, shapes), pdfName)
+      setPdfState('idle')
+    } catch {
+      setPdfState('error')
+    }
   }
 
   async function copy() {
@@ -61,10 +79,10 @@ export function ExportDialog({
   return (
     <Modal open onClose={onClose} size="xl">
       <Modal.Header>
-        <Modal.Title>Export as Markdown</Modal.Title>
+        <Modal.Title>Export</Modal.Title>
         <Modal.Description>
           Built from the board itself: nearby notes become sections, arrows set the order. Hand{' '}
-          <code className="font-mono">{fileName}</code> to your AI agent.
+          <code className="font-mono">{fileName}</code> to your AI agent, or download a PDF picture of the whole board.
         </Modal.Description>
       </Modal.Header>
       <Modal.Body>
@@ -79,6 +97,11 @@ export function ExportDialog({
             <p className="font-bold">Published. A coding agent can fetch it with:</p>
             <code className="mt-1 block break-all font-mono text-xs">{publisher.fetchCommand}</code>
           </div>
+        )}
+        {pdfState === 'error' && (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            Could not make the PDF. Try again.
+          </p>
         )}
         {publishState === 'error' && (
           <p role="alert" className="mt-3 text-sm text-destructive">
@@ -98,6 +121,15 @@ export function ExportDialog({
             <Bot /> {publishState === 'done' ? 'Publish again' : 'Publish for agents'}
           </Button>
         )}
+        <Button
+          variant="outline"
+          onClick={() => void downloadPdf()}
+          loading={pdfState === 'busy'}
+          data-testid="export-pdf"
+          title="The whole board as one page, at screen resolution"
+        >
+          <FileImage /> PDF
+        </Button>
         <Button variant="outline" onClick={copy} data-testid="export-copy">
           {copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}
         </Button>
