@@ -124,6 +124,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
   const cursorFrame = useRef<number | null>(null)
+  /** Set when this pointerdown created a shape, so the follow-up mousedown doesn't steal focus from its editor. */
+  const justCreated = useRef(false)
 
   const byId = useMemo(() => new Map(shapes.map((s) => [s.id, s])), [shapes])
 
@@ -261,6 +263,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     setArrowFrom(null)
     const w = toWorld(e.clientX, e.clientY)
     if (tool === 'sticky' || tool === 'box' || tool === 'text') {
+      justCreated.current = true
       create(tool, w.x, w.y)
       return
     }
@@ -681,6 +684,12 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         onPointerDown={onBackgroundPointerDown}
         onMouseDown={(e) => {
           if (e.button === 1) e.preventDefault() // no browser autoscroll on middle-drag
+          // The new shape's text box was focused during pointerdown; the
+          // mousedown's default focus change would blur (and close) it.
+          if (justCreated.current) {
+            justCreated.current = false
+            e.preventDefault()
+          }
         }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

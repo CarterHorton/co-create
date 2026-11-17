@@ -55,3 +55,15 @@ test('clicking the canvas or another note saves what was typed', async ({ page }
   await expect(page.getByTestId('shape-sticky').nth(0)).toContainText('Saved by clicking the canvas', { timeout: 15_000 })
   await expect(page.getByTestId('shape-sticky').nth(1)).toContainText('Saved by clicking another note')
 })
+
+test('placing a note with the sticky tool opens it for typing', async ({ page }) => {
+  await freshBoard(page)
+  await page.getByTestId('tool-sticky').click()
+  await page.getByTestId('board-viewport').click({ position: { x: 300, y: 300 } })
+  const editor = page.getByTestId('shape-editor')
+  await expect(editor).toBeVisible()
+  await expect(editor).toBeFocused()
+  await editor.pressSequentially('Placed with the tool')
+  await editor.press('Enter')
+  await expect(page.getByTestId('shape-sticky')).toContainText('Placed with the tool')
+})
