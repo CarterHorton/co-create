@@ -120,11 +120,15 @@ Revisit only if users want to push a board into an actual repo.
 Each phase ends with something usable.
 
 ### Phase 1 — Whiteboard (start here)
-- [ ] `boards` schema + board list on `/home` (create / open)
-- [ ] `/board/:id` page with `useCanvas`: sticky notes, boxes, text, arrows,
-      drag to move, pan/zoom, multi-user cursors
-- [ ] Apply DESIGN.md to the canvas chrome (toolbar, hard corners, mono UI)
-- **Done when:** two browser windows edit the same board live.
+- [x] `boards` schema + board list on `/home` (create / open / delete)
+- [x] `/board/:id` page with `useCanvas`: sticky notes, boxes, text, arrows,
+      drag to move, resize, pan/zoom, multi-user cursors (PresenceRoom)
+- [x] Apply DESIGN.md to the canvas chrome (toolbar, hard corners, mono UI)
+- [x] **Done when:** two browser windows edit the same board live —
+      verified by `tests/board.spec.ts` (run: `npx deepspace test run tests/board.spec.ts`).
+
+Code: `src/components/board/` (`Whiteboard.tsx`, `useBoard.ts` for optimistic
+local edits, `shapes.ts`), `src/pages/(app)/(protected)/board/[id].tsx`.
 
 ### Phase 2 — Group call
 - [ ] Install `livekit-client`; "Join call" mints a token with

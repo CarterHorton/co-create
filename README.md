@@ -29,8 +29,8 @@ Early scaffold. What exists today:
 
 - DeepSpace app scaffold (auth, records, Durable Objects, AI tool routes).
 - Landing page with the Co-Create theme (`src/pages/index.tsx`, `src/themes.css`).
-- `AppCanvasRoom` is already wired in `worker.ts` — the collaborative canvas
-  backend is ready; the whiteboard UI is not built yet.
+- Boards list (`/home`) and the collaborative whiteboard (`/board/:id`):
+  stickies, boxes, text, arrows, pan/zoom, live cursors.
 
 See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 [DESIGN.md](./DESIGN.md) for the visual design system.
