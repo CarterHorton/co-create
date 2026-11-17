@@ -31,6 +31,8 @@ Early scaffold. What exists today:
 - Landing page with the Co-Create theme (`src/pages/index.tsx`, `src/themes.css`).
 - Boards list (`/home`) and the collaborative whiteboard (`/board/:id`):
   stickies, boxes, text, arrows, pan/zoom, live cursors.
+- Group call beside each board (LiveKit): join/leave, mute, camera, speaking
+  indicator.
 
 See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 [DESIGN.md](./DESIGN.md) for the visual design system.

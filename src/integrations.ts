@@ -26,5 +26,9 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
+  // Must be 'user': the token's LiveKit identity comes from the forwarded JWT.
+  // Under 'developer' every participant would get the app owner's identity and
+  // LiveKit kicks the previous joiner. generate-token is free either way.
+  livekit: { billing: 'user' },
   // openai: { billing: 'developer', anonymous: true },
 }

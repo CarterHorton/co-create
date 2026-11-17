@@ -4,9 +4,10 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from 'deepspace'
+import { useQuery, useUser } from 'deepspace'
 import { ArrowLeft } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
+import { CallRail } from '@/components/call/CallRail'
 
 interface Board {
   title: string
@@ -17,6 +18,7 @@ export default function BoardPage() {
   const { id = '' } = useParams<{ id: string }>()
   const { records, status } = useQuery<Board>('boards', { orderBy: 'createdAt', orderDir: 'desc' })
   const board = records.find((r) => r.recordId === id)
+  const { user } = useUser()
 
   if (status === 'loading') {
     return <div className="flex h-full items-center justify-center font-mono text-sm text-muted-foreground">Loading board…</div>
@@ -42,8 +44,11 @@ export default function BoardPage() {
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
       </header>
-      <div className="relative min-h-0 flex-1">
-        <Whiteboard key={board.recordId} boardId={board.recordId} />
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          <Whiteboard key={board.recordId} boardId={board.recordId} />
+        </div>
+        <CallRail key={board.recordId} boardId={board.recordId} displayName={user?.name || user?.email || undefined} />
       </div>
     </div>
   )

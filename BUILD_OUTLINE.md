@@ -131,10 +131,16 @@ Code: `src/components/board/` (`Whiteboard.tsx`, `useBoard.ts` for optimistic
 local edits, `shapes.ts`), `src/pages/(app)/(protected)/board/[id].tsx`.
 
 ### Phase 2 — Group call
-- [ ] Install `livekit-client`; "Join call" mints a token with
+- [x] Install `livekit-client`; "Join call" mints a token with
       `livekit/generate-token` (signed-in users only) and connects
-- [ ] Participant tiles / mute in a side rail next to the board
-- **Done when:** two users can talk while drawing on the same board.
+- [x] Call rail beside the board: participant tiles, speaking highlight,
+      mute, camera on/off, leave (audio-first; tiles grow to show video)
+- [x] **Done when:** two users can talk while drawing on the same board —
+      verified by `tests/call.spec.ts` (fake mic/camera in headless Chromium).
+
+Code: `src/components/call/` (`useCall.ts`, `CallRail.tsx`). LiveKit is set
+to `billing: 'user'` in `src/integrations.ts` — required so each person gets
+their own LiveKit identity (token minting is free).
 
 ### Phase 3 — Version history
 - [ ] `commits` schema; auto-commit after N seconds of quiet or on demand
@@ -165,7 +171,6 @@ local edits, `shapes.ts`), `src/pages/(app)/(protected)/board/[id].tsx`.
 ## Decisions to make
 
 1. **Commit cadence:** auto-commit on idle (recommended) vs. explicit commit only.
-2. **Call UI:** full video tiles vs. audio-first with small avatars (recommended
-   to start: audio-first, it leaves room for the board).
+2. ~~**Call UI**~~ — decided: audio-first rail; video is opt-in per person.
 3. **Board access:** anyone with the link vs. invited members only.
 4. **Who pays for AI/LiveKit:** app owner credits (default) vs. per-user.
