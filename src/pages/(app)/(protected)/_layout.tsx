@@ -40,8 +40,14 @@ function SignedOutPanel() {
           Sign in
         </Button>
         <Link
+          to="/try"
+          className="mt-4 block text-sm font-bold text-foreground underline underline-offset-4"
+        >
+          Try it without an account
+        </Link>
+        <Link
           to="/"
-          className="mt-4 inline-block text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          className="mt-3 inline-block text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
           Back to home
         </Link>
