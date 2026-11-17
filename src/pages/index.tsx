@@ -18,7 +18,6 @@
 
 import { Link } from 'react-router-dom'
 import { Seo } from '../components/Seo'
-import { APP_NAME } from '../constants'
 import { seo } from '../seo'
 
 export default function Landing() {
@@ -27,22 +26,31 @@ export default function Landing() {
       <Seo {...seo} path="/" />
       <div
         data-testid="static-landing"
-        className="flex min-h-screen flex-col items-center justify-center px-6 text-center"
+        className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background px-6 text-center text-foreground selection:bg-royal/30 selection:text-foreground"
       >
-        <p className="mb-3 text-sm uppercase tracking-widest text-muted-foreground">{APP_NAME}</p>
-        <h1 className="mb-4 max-w-2xl text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-          A DeepSpace app with a static front door
+        {/* Bottom royal-blue glow — the only colour on the page (DESIGN.md). */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-5 left-1/2 h-[200px] w-[300px] -translate-x-1/2 blur-md"
+          style={{
+            background:
+              'radial-gradient(ellipse at center, rgba(65, 105, 225, 0.3) 0%, rgba(65, 105, 225, 0.05) 40%, transparent 70%)',
+          }}
+        />
+
+        <h1 className="mb-6 font-display text-[clamp(3rem,5vw,6rem)] font-black leading-none tracking-[-0.02em]">
+          Co-Create
         </h1>
-        <p className="mb-8 max-w-md text-muted-foreground">
-          This landing page ships no auth call and no realtime connection — it's a
-          plain static page. The live app, with sign-in and synced data, lives
-          behind the link below.
+
+        <p className="mb-10 max-w-2xl text-[clamp(1.2rem,2vw,1.8rem)] leading-normal text-[#333333]">
+          Design in a way you understand, for a way your AI will understand
         </p>
+
         <Link
           to="/home"
-          className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          className="inline-flex items-center justify-center border border-foreground bg-transparent px-8 py-4 text-sm font-bold uppercase tracking-[0.05em] text-foreground transition-colors duration-200 hover:border-royal/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-royal/30"
         >
-          Enter the app
+          Start Creating
         </Link>
       </div>
     </>

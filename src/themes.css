@@ -44,3 +44,40 @@
   --color-shell: #fafafa;
   --color-shell-panel: #ffffff;
 }
+
+/* Co-Create — the app's own theme (see DESIGN.md).
+ * Monochrome, hard corners, royal blue (#4169E1) only as a ≤50% accent. */
+[data-theme="cocreate"] {
+  color-scheme: light;
+  --color-background: #ffffff;
+  --color-foreground: #000000;
+  --color-card: #fafafa;
+  --color-card-foreground: #000000;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #000000;
+  --color-primary: #000000;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #fafafa;
+  --color-secondary-foreground: #000000;
+  --color-muted: #fafafa;
+  --color-muted-foreground: #666666;
+  --color-accent: rgba(65, 105, 225, 0.12);
+  --color-accent-foreground: #000000;
+  --color-destructive: #b91c1c;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #e0e0e0;
+  --color-input: #333333;
+  --color-ring: rgba(65, 105, 225, 0.5);
+  --radius: 0px;
+  /* The scaffold derives these as --radius ± n px; pin them so every
+     rounded-* utility is a hard corner. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --shadow-card: 4px 4px 0 0 rgba(0, 0, 0, 1);
+  --shadow-card-hover: 4px 4px 0 0 rgba(0, 0, 0, 1);
+  --color-shell: #fafafa;
+  --color-shell-panel: #ffffff;
+}

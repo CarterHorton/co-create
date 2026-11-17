@@ -18,6 +18,11 @@
 
 export const THEMES = [
   {
+    id: 'cocreate',
+    label: 'Co-Create',
+    description: 'Monochrome, hard corners, royal blue accent. See DESIGN.md.',
+  },
+  {
     id: 'slate',
     label: 'Slate',
     description: 'Neutral dark placeholder default. Replace with your own theme.',
