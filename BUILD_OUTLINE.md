@@ -174,6 +174,9 @@ while you browse history.
       `deepspace agent invoke` against the local dev server.
 
 ### Extras built along the way
+- [x] **Keyboard shortcuts** for every toolbar control (N = sticky note), shown
+      as key badges on the tool buttons and in hover tooltips; defined once in
+      `src/components/board/shortcuts.tsx`. Verified by `tests/shortcuts.spec.ts`.
 - [x] **Selection**: left-drag on empty canvas box-selects, Shift/Ctrl/⌘-click
       toggles, ⌘A selects all; drag any selected shape to move them all;
       Delete removes them all (with attached arrows). Middle mouse or

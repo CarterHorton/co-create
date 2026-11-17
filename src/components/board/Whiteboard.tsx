@@ -41,6 +41,7 @@ import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } fro
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections, clusterByProximity, sectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
+import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -77,13 +78,16 @@ type Drag =
 /** What is being text-edited: an existing shape, or one we just asked the server to create. */
 type Editing = { id: string } | { pending: { type: ShapeKind; x: number; y: number } } | null
 
-const TOOLS: { id: Tool; label: string; key: string; Icon: typeof Square }[] = [
-  { id: 'select', label: 'Select — drag to box-select; middle mouse or Space+drag to pan', key: 'v', Icon: MousePointer2 },
-  { id: 'sticky', label: 'Sticky note', key: 's', Icon: StickyNote },
-  { id: 'box', label: 'Box', key: 'b', Icon: Square },
-  { id: 'text', label: 'Text', key: 't', Icon: Type },
-  { id: 'arrow', label: 'Arrow — click two shapes', key: 'a', Icon: ArrowUpRight },
+const TOOLS: { id: Tool; label: string; shortcut: ShortcutId; Icon: typeof Square }[] = [
+  { id: 'select', label: 'Select (drag to box-select)', shortcut: 'select', Icon: MousePointer2 },
+  { id: 'sticky', label: 'Sticky note', shortcut: 'sticky', Icon: StickyNote },
+  { id: 'box', label: 'Box', shortcut: 'box', Icon: Square },
+  { id: 'text', label: 'Text', shortcut: 'text', Icon: Type },
+  { id: 'arrow', label: 'Arrow (click two shapes)', shortcut: 'arrow', Icon: ArrowUpRight },
 ]
+const ROUTE_SHORTCUT: Record<ArrowRoute, ShortcutId> = { straight: 'routeStraight', elbow: 'routeElbow', curve: 'routeCurve' }
+/** Single-key shortcut → action. */
+const keyOf = (id: ShortcutId) => SHORTCUTS[id][0].toLowerCase()
 
 const ROUTE_ICONS: Record<ArrowRoute, typeof Square> = { straight: Slash, elbow: CornerDownRight, curve: Spline }
 
@@ -409,6 +413,23 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     return () => el.removeEventListener('wheel', onWheel)
   }, [zoomAt])
 
+  /** Pick an arrow style; also restyles any selected arrows (resetting their bend). */
+  const applyRoute = useCallback(
+    (id: ArrowRoute) => {
+      setRoute(id)
+      for (const a of selectedShapes) if (a.type === 'arrow') update(a.id, { route: id, bend: null })
+    },
+    [selectedShapes, update],
+  )
+
+  const zoomAtCenter = useCallback(
+    (dir: 1 | -1) => {
+      const r = viewportRef.current?.getBoundingClientRect()
+      if (r) zoomAt(r.left + r.width / 2, r.top + r.height / 2, dir)
+    },
+    [zoomAt],
+  )
+
   // ── Keyboard ───────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -454,11 +475,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         setEditing({ id: active.id })
         return
       }
-      const hit = TOOLS.find((x) => x.key === e.key.toLowerCase())
+      const k = e.key.toLowerCase()
+      const hit = TOOLS.find((x) => keyOf(x.shortcut) === k)
       if (hit && (hit.id === 'select' || canWrite)) {
         setTool(hit.id)
         setArrowFrom(null)
+        return
       }
+      const routeHit = ARROW_ROUTES.find((r) => keyOf(ROUTE_SHORTCUT[r.id]) === k)
+      if (routeHit && canWrite) return applyRoute(routeHit.id)
+      if (k === keyOf('sections')) return setShowSections((v) => !v)
+      if (k === keyOf('export')) return setExportOpen(true)
+      if (e.key === '+' || e.key === '=') return zoomAtCenter(1)
+      if (e.key === '-' || e.key === '_') return zoomAtCenter(-1)
+      if (e.key === '0') return setCam({ x: 0, y: 0, zoom: 1 })
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === ' ') setSpaceHeld(false)
@@ -472,7 +502,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes])
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter])
 
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
@@ -492,11 +522,10 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         aria-label="Board tools"
         className="absolute left-4 top-4 z-20 flex items-center border border-foreground bg-background shadow-[4px_4px_0_0_#000]"
       >
-        {TOOLS.map(({ id, label, key, Icon }) => (
+        {TOOLS.map(({ id, label, shortcut, Icon }) => (
+          <Hint key={id} label={label} shortcut={shortcut}>
           <button
-            key={id}
             type="button"
-            title={`${label} (${key.toUpperCase()})`}
             aria-label={label}
             aria-pressed={tool === id}
             data-testid={`tool-${id}`}
@@ -506,12 +535,14 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               setArrowFrom(null)
             }}
             className={cn(
-              'flex size-10 items-center justify-center border-r border-border transition-colors disabled:opacity-30',
+              'relative flex size-10 items-center justify-center border-r border-border transition-colors disabled:opacity-30',
               tool === id ? 'bg-foreground text-background' : 'hover:bg-royal/20',
             )}
           >
             <Icon className="size-4" />
+            <KeyBadge shortcut={shortcut} />
           </button>
+          </Hint>
         ))}
         <div className="flex items-center border-r border-border" role="group" aria-label="Arrow style">
           {ARROW_ROUTES.map(({ id, label }) => {
@@ -519,26 +550,23 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
             const selArrows = selectedShapes.filter((x) => x.type === 'arrow')
             const current = selArrows.length ? arrowRoute(selArrows[0]) : route
             return (
+              <Hint key={id} label={`${label} arrow`} shortcut={ROUTE_SHORTCUT[id]}>
               <button
-                key={id}
                 type="button"
                 data-testid={`route-${id}`}
-                title={`${label} arrow`}
                 aria-label={`${label} arrow`}
                 aria-pressed={current === id}
                 disabled={!canWrite}
-                onClick={() => {
-                  setRoute(id)
-                  // Switching style resets the bend to that style's default.
-                  for (const a of selArrows) update(a.id, { route: id, bend: null })
-                }}
+                onClick={() => applyRoute(id)}
                 className={cn(
-                  'flex h-10 w-8 items-center justify-center transition-colors disabled:opacity-30',
+                  'relative flex h-10 w-8 items-center justify-center transition-colors disabled:opacity-30',
                   current === id ? 'bg-royal/30' : 'hover:bg-royal/20',
                 )}
               >
                 <Icon className="size-4" />
+                <KeyBadge shortcut={ROUTE_SHORTCUT[id]} />
               </button>
+              </Hint>
             )
           })}
         </div>
@@ -547,10 +575,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
             const selStickies = selectedShapes.filter((x) => x.type === 'sticky')
             const current = selStickies.length ? stickyColor(selStickies[0]) : color
             return (
+              <Hint key={c} label={`${STICKY_COLORS[c].label} sticky`}>
               <button
-                key={c}
                 type="button"
-                title={`${STICKY_COLORS[c].label} sticky`}
                 aria-label={`${STICKY_COLORS[c].label} sticky`}
                 aria-pressed={current === c}
                 disabled={!canWrite}
@@ -564,17 +591,19 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
                 )}
                 style={{ background: STICKY_COLORS[c].bg }}
               />
+              </Hint>
             )
           })}
         </div>
-        <ToolbarButton label="Undo (⌘Z)" onClick={undo} disabled={!canWrite}>
+        <ToolbarButton label="Undo" shortcut="undo" onClick={undo} disabled={!canWrite}>
           <Undo2 className="size-4" />
         </ToolbarButton>
-        <ToolbarButton label="Redo (⇧⌘Z)" onClick={redo} disabled={!canWrite}>
+        <ToolbarButton label="Redo" shortcut="redo" onClick={redo} disabled={!canWrite}>
           <Redo2 className="size-4" />
         </ToolbarButton>
         <ToolbarButton
-          label="Delete selected (Del)"
+          label="Delete selected"
+          shortcut="delete"
           onClick={() => removeMany(selectedSet)}
           disabled={!canWrite || !selectedSet.size}
           last
@@ -590,7 +619,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       )}
 
       {/* Status + presence */}
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-3">
+      {/* Second row on normal widths so it never collides with the toolbar; shares the top row on very wide screens. */}
+      <div className="absolute right-4 top-[68px] z-20 flex items-center gap-3 min-[1600px]:top-4">
         <div className="flex -space-x-1">
           {peers.map((p) => (
             <span
@@ -603,11 +633,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
             </span>
           ))}
         </div>
+        <Hint label="Outline the sections the export will use" shortcut="sections">
         <button
           type="button"
           data-testid="toggle-sections"
           aria-pressed={showSections}
-          title="Outline the sections the Markdown export will use"
           onClick={() => setShowSections((v) => !v)}
           className={cn(
             'flex items-center gap-1.5 border border-foreground px-2.5 py-1 text-xs font-bold uppercase tracking-[0.05em] shadow-[2px_2px_0_0_#000]',
@@ -616,6 +646,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         >
           <Group className="size-3.5" /> Sections
         </button>
+        </Hint>
+        <Hint label="Export the board as Markdown" shortcut="export">
         <button
           type="button"
           data-testid="export-md"
@@ -624,6 +656,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         >
           <FileDown className="size-3.5" /> Export .md
         </button>
+        </Hint>
         <span
           data-testid="board-connection"
           className="flex items-center gap-1.5 border border-border bg-background px-2 py-1 font-mono text-xs text-muted-foreground"
@@ -646,18 +679,21 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
 
       {/* Zoom */}
       <div className="absolute bottom-4 right-4 z-20 flex items-center border border-foreground bg-background">
-        <ToolbarButton label="Zoom out" onClick={() => zoomAtCenter(-1)}>
+        <ToolbarButton label="Zoom out" shortcut="zoomOut" side="top" onClick={() => zoomAtCenter(-1)}>
           <Minus className="size-4" />
         </ToolbarButton>
+        <Hint label="Reset zoom to 100%" shortcut="zoomReset" side="top">
         <button
           type="button"
-          title="Reset zoom"
+          aria-label="Reset zoom"
+          data-testid="zoom-level"
           onClick={() => setCam({ x: 0, y: 0, zoom: 1 })}
           className="h-10 w-14 border-r border-border font-mono text-xs hover:bg-royal/20"
         >
           {Math.round(cam.zoom * 100)}%
         </button>
-        <ToolbarButton label="Zoom in" onClick={() => zoomAtCenter(1)} last>
+        </Hint>
+        <ToolbarButton label="Zoom in" shortcut="zoomIn" side="top" onClick={() => zoomAtCenter(1)} last>
           <Plus className="size-4" />
         </ToolbarButton>
       </div>
@@ -814,39 +850,40 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     </div>
   )
 
-  function zoomAtCenter(dir: 1 | -1) {
-    const r = viewportRef.current?.getBoundingClientRect()
-    if (r) zoomAt(r.left + r.width / 2, r.top + r.height / 2, dir)
-  }
 }
 
 function ToolbarButton({
   label,
+  shortcut,
+  side,
   onClick,
   disabled,
   last,
   children,
 }: {
   label: string
+  shortcut?: ShortcutId
+  side?: 'top' | 'bottom'
   onClick: () => void
   disabled?: boolean
   last?: boolean
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'flex size-10 items-center justify-center transition-colors hover:bg-royal/20 disabled:opacity-30 disabled:hover:bg-transparent',
-        !last && 'border-r border-border',
-      )}
-    >
-      {children}
-    </button>
+    <Hint label={label} shortcut={shortcut} side={side}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          'flex size-10 items-center justify-center transition-colors hover:bg-royal/20 disabled:opacity-30 disabled:hover:bg-transparent',
+          !last && 'border-r border-border',
+        )}
+      >
+        {children}
+      </button>
+    </Hint>
   )
 }
 
@@ -1133,26 +1170,28 @@ function SelectionBar({
         </button>
       </form>
       {anyAssigned && (
+        <Hint label="Remove from its section (groups by position again)" side="top">
         <button
           type="button"
           data-testid="section-remove"
-          title="Remove the selection from its section (it groups by position again)"
           onClick={onUngroup}
           className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20"
         >
           <Ungroup className="size-3.5" /> Ungroup
         </button>
+        </Hint>
       )}
+      <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"
         data-testid="selection-delete"
-        title="Delete selected (Del)"
         aria-label="Delete selected"
         onClick={onDelete}
         className="flex size-8 items-center justify-center border border-foreground hover:bg-royal/20"
       >
         <Trash2 className="size-3.5" />
       </button>
+      </Hint>
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 test('zoom steps by 25% with the buttons and Ctrl+scroll', async ({ page }) => {
   await page.goto('/try')
   await expect(page.getByTestId('try-page')).toBeVisible({ timeout: 15_000 })
-  const level = page.getByTitle('Reset zoom')
+  const level = page.getByTestId('zoom-level')
   await expect(level).toHaveText('100%')
 
   await page.getByRole('button', { name: 'Zoom in' }).click()

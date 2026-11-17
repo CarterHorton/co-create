@@ -61,6 +61,20 @@ See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 | Guest boards         | `localStorage` only (`/try`): no account, no calls                 |
 | UI                   | React 19, Tailwind v4, Base UI primitives in `src/components/ui`   |
 
+## Keyboard shortcuts
+
+Hover any toolbar button to see its shortcut. "Ctrl" is ⌘ on a Mac.
+
+| Key | Action | Key | Action |
+|---|---|---|---|
+| `V` | Select tool | `1` / `2` / `3` | Straight / elbow / curve arrows |
+| `N` | Sticky note tool | `G` | Show / hide sections |
+| `B` | Box tool | `E` | Export .md |
+| `T` | Text tool | `+` / `-` / `0` | Zoom in / out / reset |
+| `A` | Arrow tool | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Del` | Delete selection | `Ctrl+A` | Select all |
+| `Enter` | Edit selected note (Enter again to finish, Shift+Enter for a new line) | `Space`+drag / middle mouse | Pan |
+
 ## Handing a board to an agent
 
 1. On a board, click **Export .md** → **Download**, or **Publish for agents**.
