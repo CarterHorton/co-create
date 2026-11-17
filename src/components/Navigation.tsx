@@ -12,7 +12,6 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
 import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
-import { APP_NAME } from '../constants'
 import type { Role } from '../constants'
 import { nav } from '../nav'
 import { cn } from '../lib/utils'
@@ -71,8 +70,8 @@ export default function Navigation() {
     <>
       <nav data-testid="app-navigation" className="border-b border-border bg-background">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
-            {APP_NAME}
+          <Link to="/home" className="font-display text-base font-black tracking-[-0.02em] text-foreground">
+            Co-Create
           </Link>
 
           <div className="hidden items-center md:flex">{visibleNav.map(navLink)}</div>
@@ -82,8 +81,8 @@ export default function Navigation() {
           {!isLoaded ? null : isSignedIn && !profileReady ? (
             /* Signed in, profile still loading — skeleton pill, never the
                Sign in button (that would offer sign-in to a signed-in user). */
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pl-1 pr-2.5">
-              <div className="h-6 w-6 animate-pulse rounded-full bg-muted" />
+            <div className="flex items-center gap-2 border border-border bg-card/60 py-1 pl-1 pr-2.5">
+              <div className="h-6 w-6 animate-pulse bg-muted" />
               <div className="hidden h-4 w-20 animate-pulse rounded-md bg-muted sm:block" />
             </div>
           ) : isSignedIn && user ? (
@@ -92,7 +91,7 @@ export default function Navigation() {
                 render={
                   <button
                     aria-label="Account menu"
-                    className="group flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pl-1 pr-2.5 text-sm transition-colors hover:bg-card"
+                    className="group flex items-center gap-2 border border-border bg-card/60 py-1 pl-1 pr-2.5 text-sm transition-colors hover:bg-card"
                   >
                     <Avatar className="h-6 w-6 ring-1 ring-inset ring-border">
                       <AvatarImage src={user.imageUrl ?? undefined} referrerPolicy="no-referrer" />
