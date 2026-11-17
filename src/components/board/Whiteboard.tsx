@@ -2,7 +2,7 @@
  * Whiteboard — the collaborative canvas for one board.
  *
  * Storage-agnostic: it renders and edits whatever BoardStore it's given —
- * the synced CanvasRoom (CloudWhiteboard) or this browser's localStorage
+ * the synced CanvasRoom (useBoard, on /board/:id) or this browser's localStorage
  * (guest mode). Live cursors appear when a `presence` is passed. Everything is plain
  * DOM inside one transformed "world" layer; arrows are an SVG layer in the
  * same coordinate space.
@@ -79,7 +79,7 @@ interface WhiteboardProps {
   title: string
   /** Live cursors + avatars; omit for single-user (guest) boards. */
   presence?: BoardPresence
-  /** Status badge text when connected, e.g. "Live" or "Saved in this browser". */
+  /** Status badge text when connected (overrides "Live" / "Live · view only"). */
   statusLabel?: string
 }
 
@@ -260,6 +260,16 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
 
   function onDoubleClick(e: React.MouseEvent) {
     if (!canWrite) return
+    // A drag captures the pointer on the viewport, so a double-click on a shape
+    // can arrive here instead of on the shape. Hit-test what's really under it.
+    const hit = document.elementFromPoint(e.clientX, e.clientY)
+    const shapeEl = hit?.closest<HTMLElement>('[data-shape-id]')
+    if (shapeEl) {
+      const id = shapeEl.dataset.shapeId!
+      if (byId.get(id)?.type !== 'arrow') setEditing({ id })
+      return
+    }
+    if (hit?.closest('[data-testid="board-arrow"]')) return
     const w = toWorld(e.clientX, e.clientY)
     create('sticky', w.x, w.y)
   }
@@ -350,7 +360,7 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
       <div
         role="toolbar"
         aria-label="Board tools"
-        className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center border border-foreground bg-background shadow-[4px_4px_0_0_#000]"
+        className="absolute left-4 top-4 z-20 flex items-center border border-foreground bg-background shadow-[4px_4px_0_0_#000]"
       >
         {TOOLS.map(({ id, label, key, Icon }) => (
           <button
@@ -442,7 +452,7 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
       </div>
 
       {tool === 'arrow' && (
-        <p className="absolute left-1/2 top-20 z-20 -translate-x-1/2 bg-foreground px-3 py-1 font-mono text-xs text-background">
+        <p className="absolute left-4 top-20 z-20 bg-foreground px-3 py-1 font-mono text-xs text-background">
           {arrowFrom ? 'Now click the shape it points to' : 'Click the shape the arrow starts from'}
         </p>
       )}
@@ -474,7 +484,7 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
           className="flex items-center gap-1.5 border border-border bg-background px-2 py-1 font-mono text-xs text-muted-foreground"
         >
           <span className={cn('size-1.5', connected ? 'bg-success' : 'animate-pulse bg-warning')} />
-          {connected ? (canWrite ? (statusLabel ?? 'Live') : 'Live · view only') : 'Connecting…'}
+          {connected ? (statusLabel ?? (canWrite ? 'Live' : 'Live · view only')) : 'Connecting…'}
         </span>
       </div>
 
