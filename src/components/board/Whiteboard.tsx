@@ -7,9 +7,12 @@
  * DOM inside one transformed "world" layer; arrows are an SVG layer in the
  * same coordinate space.
  *
- * Controls: drag empty space to pan, ctrl/⌘ + wheel (or pinch) to zoom, wheel
- * to scroll. Double-click empty space for a sticky, double-click a shape to
- * edit its text. V/S/B/T/A pick tools, Delete removes, ⌘Z / ⇧⌘Z undo/redo.
+ * Controls: left-drag on empty space box-selects (Shift/Ctrl/⌘ adds); click or
+ * Shift-click shapes to select; drag a selected shape to move the whole
+ * selection. Middle mouse or Space+drag pans, wheel scrolls, Ctrl/⌘+wheel zooms
+ * in 25% steps. Double-click empty space for a sticky, double-click a shape to
+ * edit its text. With shapes selected, the bottom bar assigns them to a named
+ * section. Delete removes the selection; ⌘Z / ⇧⌘Z undo/redo; ⌘A selects all.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
@@ -19,6 +22,8 @@ import {
   CornerDownRight,
   FileDown,
   Group,
+  Tag,
+  Ungroup,
   Minus,
   Slash,
   Spline,
@@ -34,7 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
-import { buildSections } from '@/spec/buildSpec'
+import { buildSections, clusterByProximity, sectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import {
   ARROW_ROUTES,
@@ -57,14 +62,23 @@ interface Camera {
 }
 type Drag =
   | { kind: 'pan'; sx: number; sy: number; cam: Camera }
-  | { kind: 'move'; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean }
+  | {
+      kind: 'move'
+      sx: number
+      sy: number
+      origins: { id: string; x: number; y: number }[]
+      moved: boolean
+      /** Clicked (not dragged) inside a multi-selection: narrow to this shape on release. */
+      collapseTo?: string
+    }
+  | { kind: 'marquee'; wx: number; wy: number; base: string[] }
   | { kind: 'resize'; id: string; sx: number; sy: number; ow: number; oh: number }
   | { kind: 'bend'; id: string; sx: number; sy: number; ox: number; oy: number; axis: 'x' | 'y' | 'xy' }
 /** What is being text-edited: an existing shape, or one we just asked the server to create. */
 type Editing = { id: string } | { pending: { type: ShapeKind; x: number; y: number } } | null
 
 const TOOLS: { id: Tool; label: string; key: string; Icon: typeof Square }[] = [
-  { id: 'select', label: 'Select / pan', key: 'v', Icon: MousePointer2 },
+  { id: 'select', label: 'Select — drag to box-select; middle mouse or Space+drag to pan', key: 'v', Icon: MousePointer2 },
   { id: 'sticky', label: 'Sticky note', key: 's', Icon: StickyNote },
   { id: 'box', label: 'Box', key: 'b', Icon: Square },
   { id: 'text', label: 'Text', key: 't', Icon: Type },
@@ -90,13 +104,16 @@ const NO_PEERS: BoardPresence['peers'] = []
 
 export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
   const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = store
+  const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
   const updateState = presence?.updateState
 
   const [tool, setTool] = useState<Tool>('select')
   const [color, setColor] = useState<StickyColor>('white')
   const [cam, setCam] = useState<Camera>({ x: 0, y: 0, zoom: 1 })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const [spaceHeld, setSpaceHeld] = useState(false)
   const [editing, setEditing] = useState<Editing>(null)
   const [arrowFrom, setArrowFrom] = useState<string | null>(null)
   const [panning, setPanning] = useState(false)
@@ -118,8 +135,26 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     const p = editing.pending
     return shapes.find((s) => s.type === p.type && s.x === p.x && s.y === p.y)?.id ?? null
   }, [editing, byId, shapes])
-  const activeId = editingId ?? (selectedId && byId.has(selectedId) ? selectedId : null)
+  /** Live selection (ids that still exist). */
+  const selectedSet = useMemo(() => new Set(selected.filter((id) => byId.has(id))), [selected, byId])
+  /** The single shape that single-shape controls act on (text edit, resize, arrow bend). */
+  const activeId = editingId ?? (selectedSet.size === 1 ? [...selectedSet][0] : null)
   const active = activeId ? byId.get(activeId) : undefined
+  const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
+  const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
+  const sectionNames = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const s of shapes) {
+      const n = sectionNameOf(s)
+      if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n)
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+  }, [shapes])
+  const selectedNotes = selectedShapes.filter((x) => x.type !== 'arrow')
+  const assignSection = (name: string | null) =>
+    batch(() => {
+      for (const x of selectedNotes) update(x.id, { section: name })
+    })
 
   const toWorld = useCallback(
     (clientX: number, clientY: number) => {
@@ -160,17 +195,38 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     [addShape, canWrite, color],
   )
 
-  const remove = useCallback(
-    (id: string) => {
-      // Arrows can't dangle: take any attached to this shape with it.
+  const removeMany = useCallback(
+    (ids: Iterable<string>) => {
+      const doomed = new Set(ids)
+      // Arrows can't dangle: take any attached to a deleted shape with it.
       for (const s of shapes) {
-        if (s.type === 'arrow' && (s.props.from === id || s.props.to === id)) deleteShape(s.id)
+        if (s.type === 'arrow' && (doomed.has(String(s.props.from)) || doomed.has(String(s.props.to)))) doomed.add(s.id)
       }
-      deleteShape(id)
-      setSelectedId(null)
+      const order = shapes.filter((s) => doomed.has(s.id))
+      batch(() => {
+        for (const s of [...order.filter((x) => x.type === 'arrow'), ...order.filter((x) => x.type !== 'arrow')]) deleteShape(s.id)
+      })
+      setSelected([])
       setEditing(null)
     },
-    [shapes, deleteShape],
+    [shapes, deleteShape, batch],
+  )
+
+  /** Shapes touched by a world-space rectangle, plus arrows whose both ends are selected. */
+  const hitTest = useCallback(
+    (x0: number, y0: number, x1: number, y1: number, base: string[]) => {
+      const [l, r] = [Math.min(x0, x1), Math.max(x0, x1)]
+      const [t, b] = [Math.min(y0, y1), Math.max(y0, y1)]
+      const ids = new Set(base)
+      for (const s of shapes) {
+        if (s.type !== 'arrow' && s.x < r && s.x + s.width > l && s.y < b && s.y + s.height > t) ids.add(s.id)
+      }
+      for (const s of shapes) {
+        if (s.type === 'arrow' && ids.has(String(s.props.from)) && ids.has(String(s.props.to))) ids.add(s.id)
+      }
+      return [...ids]
+    },
+    [shapes],
   )
 
   const pickForArrow = useCallback(
@@ -187,23 +243,38 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
 
   // ── Pointer handling ───────────────────────────────────────────────────
 
+  function startPan(e: ReactPointerEvent) {
+    drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, cam }
+    setPanning(true)
+    viewportRef.current?.setPointerCapture(e.pointerId)
+  }
+
   function onBackgroundPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 && e.button !== 1) return
+    // Middle mouse (or Space + left) pans, from anywhere — shapes let these bubble here.
+    if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+      e.preventDefault()
+      startPan(e)
+      return
+    }
+    if (e.button !== 0) return
     setEditing(null)
-    setSelectedId(null)
     setArrowFrom(null)
-    if (e.button === 0 && (tool === 'sticky' || tool === 'box' || tool === 'text')) {
-      const w = toWorld(e.clientX, e.clientY)
+    const w = toWorld(e.clientX, e.clientY)
+    if (tool === 'sticky' || tool === 'box' || tool === 'text') {
       create(tool, w.x, w.y)
       return
     }
-    drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, cam }
-    setPanning(true)
+    // Left-drag on empty canvas: box-select. Shift/Ctrl/⌘ adds to the selection.
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    const base = additive ? [...selectedSet] : []
+    setSelected(base)
+    drag.current = { kind: 'marquee', wx: w.x, wy: w.y, base }
+    setMarquee({ x0: w.x, y0: w.y, x1: w.x, y1: w.y })
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   function onShapePointerDown(e: ReactPointerEvent, s: BoardShape) {
-    if (e.button !== 0) return
+    if (e.button !== 0 || spaceHeld) return // let pans bubble to the viewport
     e.stopPropagation()
     if (editingId === s.id) return
     if (tool === 'arrow') {
@@ -211,9 +282,27 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       return
     }
     setEditing(null)
-    setSelectedId(s.id)
-    if (!canWrite || s.type === 'arrow') return
-    drag.current = { kind: 'move', id: s.id, sx: e.clientX, sy: e.clientY, ox: s.x, oy: s.y, moved: false }
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      setSelected((prev) => (prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id]))
+      return
+    }
+    const inSelection = selectedSet.has(s.id)
+    const ids = inSelection ? [...selectedSet] : [s.id]
+    if (!inSelection) setSelected([s.id])
+    if (!canWrite) return
+    const origins = ids
+      .map((id) => byId.get(id))
+      .filter((x): x is BoardShape => !!x && x.type !== 'arrow')
+      .map((x) => ({ id: x.id, x: x.x, y: x.y }))
+    if (!origins.length) return
+    drag.current = {
+      kind: 'move',
+      sx: e.clientX,
+      sy: e.clientY,
+      origins,
+      moved: false,
+      collapseTo: inSelection && selectedSet.size > 1 ? s.id : undefined,
+    }
     viewportRef.current?.setPointerCapture(e.pointerId)
   }
 
@@ -235,6 +324,12 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     broadcastCursor(e.clientX, e.clientY)
     const d = drag.current
     if (!d) return
+    if (d.kind === 'marquee') {
+      const w = toWorld(e.clientX, e.clientY)
+      setMarquee({ x0: d.wx, y0: d.wy, x1: w.x, y1: w.y })
+      setSelected(hitTest(d.wx, d.wy, w.x, w.y, d.base))
+      return
+    }
     const dx = e.clientX - d.sx
     const dy = e.clientY - d.sy
     if (d.kind === 'pan') {
@@ -242,7 +337,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     } else if (d.kind === 'move') {
       if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return
       d.moved = true
-      move(d.id, Math.round(d.ox + dx / cam.zoom), Math.round(d.oy + dy / cam.zoom))
+      for (const o of d.origins) move(o.id, Math.round(o.x + dx / cam.zoom), Math.round(o.y + dy / cam.zoom))
     } else if (d.kind === 'bend') {
       update(d.id, {
         bend: {
@@ -260,8 +355,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   }
 
   function onPointerUp() {
+    const d = drag.current
+    if (d?.kind === 'move' && !d.moved && d.collapseTo) setSelected([d.collapseTo])
     drag.current = null
     setPanning(false)
+    setMarquee(null)
   }
 
   function onDoubleClick(e: React.MouseEvent) {
@@ -326,14 +424,24 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         redo()
         return
       }
-      if (mod) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && activeId && canWrite) {
+      if (mod && e.key.toLowerCase() === 'a') {
         e.preventDefault()
-        remove(activeId)
+        setSelected(shapes.map((s) => s.id))
+        return
+      }
+      if (mod) return
+      if (e.key === ' ') {
+        e.preventDefault()
+        setSpaceHeld(true)
+        return
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSet.size && canWrite) {
+        e.preventDefault()
+        removeMany(selectedSet)
         return
       }
       if (e.key === 'Escape') {
-        setSelectedId(null)
+        setSelected([])
         setArrowFrom(null)
         setTool('select')
         return
@@ -349,9 +457,19 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         setArrowFrom(null)
       }
     }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') setSpaceHeld(false)
+    }
+    const onBlur = () => setSpaceHeld(false)
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activeId, active, canWrite, remove, undo, redo])
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes])
 
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
@@ -395,7 +513,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         <div className="flex items-center border-r border-border" role="group" aria-label="Arrow style">
           {ARROW_ROUTES.map(({ id, label }) => {
             const Icon = ROUTE_ICONS[id]
-            const current = active?.type === 'arrow' ? arrowRoute(active) : route
+            const selArrows = selectedShapes.filter((x) => x.type === 'arrow')
+            const current = selArrows.length ? arrowRoute(selArrows[0]) : route
             return (
               <button
                 key={id}
@@ -408,7 +527,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
                 onClick={() => {
                   setRoute(id)
                   // Switching style resets the bend to that style's default.
-                  if (active?.type === 'arrow') update(active.id, { route: id, bend: null })
+                  for (const a of selArrows) update(a.id, { route: id, bend: null })
                 }}
                 className={cn(
                   'flex h-10 w-8 items-center justify-center transition-colors disabled:opacity-30',
@@ -422,7 +541,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </div>
         <div className="flex items-center gap-1 border-r border-border px-2" aria-label="Sticky color">
           {(Object.keys(STICKY_COLORS) as StickyColor[]).map((c) => {
-            const current = active?.type === 'sticky' ? stickyColor(active) : color
+            const selStickies = selectedShapes.filter((x) => x.type === 'sticky')
+            const current = selStickies.length ? stickyColor(selStickies[0]) : color
             return (
               <button
                 key={c}
@@ -433,7 +553,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
                 disabled={!canWrite}
                 onClick={() => {
                   setColor(c)
-                  if (active?.type === 'sticky') update(active.id, { color: c })
+                  for (const st of selStickies) update(st.id, { color: c })
                 }}
                 className={cn(
                   'size-5 border border-foreground disabled:opacity-30',
@@ -451,9 +571,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           <Redo2 className="size-4" />
         </ToolbarButton>
         <ToolbarButton
-          label="Delete (Del)"
-          onClick={() => activeId && remove(activeId)}
-          disabled={!canWrite || !activeId}
+          label="Delete selected (Del)"
+          onClick={() => removeMany(selectedSet)}
+          disabled={!canWrite || !selectedSet.size}
           last
         >
           <Trash2 className="size-4" />
@@ -510,6 +630,17 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </span>
       </div>
 
+      {canWrite && selectedNotes.length > 0 && !editingId && (
+        <SelectionBar
+          key={selectedNotes.map((x) => x.id).join(',')}
+          shapes={selectedNotes}
+          sectionNames={sectionNames}
+          onAssign={(name) => assignSection(name)}
+          onUngroup={() => assignSection(null)}
+          onDelete={() => removeMany(selectedSet)}
+        />
+      )}
+
       {/* Zoom */}
       <div className="absolute bottom-4 right-4 z-20 flex items-center border border-foreground bg-background">
         <ToolbarButton label="Zoom out" onClick={() => zoomAtCenter(-1)}>
@@ -540,7 +671,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         data-testid="board-viewport"
         className={cn(
           'absolute inset-0 touch-none select-none',
-          tool === 'select' ? (panning ? 'cursor-grabbing' : 'cursor-default') : 'cursor-crosshair',
+          panning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : tool === 'select' ? 'cursor-default' : 'cursor-crosshair',
         )}
         style={{
           backgroundImage: 'radial-gradient(circle, #d4d4d4 1px, transparent 1px)',
@@ -548,6 +679,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           backgroundPosition: `${cam.x}px ${cam.y}px`,
         }}
         onPointerDown={onBackgroundPointerDown}
+        onMouseDown={(e) => {
+          if (e.button === 1) e.preventDefault() // no browser autoscroll on middle-drag
+        }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
@@ -573,7 +707,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               const to = byId.get(String(a.props.to))
               if (!from || !to) return null
               const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to))
-              const isActive = a.id === activeId
+              const isActive = selectedSet.has(a.id)
               const hs = 10 / cam.zoom
               return (
                 <g key={a.id} data-testid="board-arrow" data-route={arrowRoute(a)}>
@@ -587,7 +721,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
                     markerEnd={`url(#${isActive ? 'arrowhead-active' : 'arrowhead'})`}
                     pointerEvents="none"
                   />
-                  {isActive && canWrite && geo.handle && geo.axis && (
+                  {a.id === activeId && canWrite && geo.handle && geo.axis && (
                     <rect
                       data-testid="arrow-bend-handle"
                       x={geo.handle.x - hs / 2}
@@ -613,7 +747,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
             <ShapeView
               key={s.id}
               shape={s}
-              selected={s.id === activeId}
+              selected={selectedSet.has(s.id)}
+              showHandles={s.id === activeId}
+              showSectionTag={!showSections}
               arrowSource={s.id === arrowFrom}
               editing={s.id === editingId}
               canWrite={canWrite}
@@ -627,6 +763,19 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               }}
             />
           ))}
+
+          {marquee && (
+            <div
+              data-testid="marquee"
+              className="pointer-events-none absolute border border-dashed border-royal/50 bg-royal/10"
+              style={{
+                left: Math.min(marquee.x0, marquee.x1),
+                top: Math.min(marquee.y0, marquee.y1),
+                width: Math.abs(marquee.x1 - marquee.x0),
+                height: Math.abs(marquee.y1 - marquee.y0),
+              }}
+            />
+          )}
 
           {/* Other people's cursors */}
           {peers.map((p) => {
@@ -695,6 +844,10 @@ function ToolbarButton({
 interface ShapeViewProps {
   shape: BoardShape
   selected: boolean
+  /** Show the resize handle (single selection only). */
+  showHandles: boolean
+  /** Show the shape's section-name tag (hidden while the Sections overlay labels them). */
+  showSectionTag: boolean
   arrowSource: boolean
   editing: boolean
   canWrite: boolean
@@ -710,6 +863,8 @@ interface ShapeViewProps {
 function ShapeView({
   shape: s,
   selected,
+  showHandles,
+  showSectionTag,
   arrowSource,
   editing,
   canWrite,
@@ -768,7 +923,15 @@ function ShapeView({
           {text || (canWrite ? 'Double-click to write' : '')}
         </p>
       )}
-      {selected && canWrite && !editing && (
+      {showSectionTag && sectionNameOf(s) && (
+        <span
+          data-testid="shape-section-tag"
+          className="pointer-events-none absolute bottom-full left-0 mb-1.5 max-w-full truncate border border-royal/50 bg-background px-1 font-mono text-[10px] leading-4 text-foreground"
+        >
+          {sectionNameOf(s)}
+        </span>
+      )}
+      {showHandles && canWrite && !editing && (
         <div
           role="presentation"
           onPointerDown={onResizePointerDown}
@@ -861,27 +1024,126 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
     <>
       {sections.map((sec) => {
         const members = [...sec.ids].map((id) => byId.get(id)).filter((s): s is BoardShape => !!s)
-        if (!members.length) return null
-        const x = Math.min(...members.map((s) => s.x)) - pad
-        const y = Math.min(...members.map((s) => s.y)) - pad
-        const w = Math.max(...members.map((s) => s.x + s.width)) - x + pad
-        const h = Math.max(...members.map((s) => s.y + s.height)) - y + pad
-        return (
-          <div
-            key={sec.anchor}
-            data-testid="section-outline"
-            className="pointer-events-none absolute border-2 border-dashed border-royal/50 bg-royal/5"
-            style={{ left: x, top: y, width: w, height: h }}
-          >
-            <span
-              className="absolute left-0 origin-bottom-left whitespace-nowrap bg-foreground px-1.5 py-0.5 font-mono text-xs font-semibold text-background"
-              style={{ bottom: '100%', transform: `scale(${1 / zoom})` }}
+        // A named section can be spread across the board: one outline per clump
+        // (a looser gap than proximity grouping, so a cluster you picked stays one box).
+        const clumps = sec.assigned ? clusterByProximity(members, 200) : [members]
+        return clumps.map((clump, i) => {
+          if (!clump.length) return null
+          const x = Math.min(...clump.map((s) => s.x)) - pad
+          const y = Math.min(...clump.map((s) => s.y)) - pad
+          const w = Math.max(...clump.map((s) => s.x + s.width)) - x + pad
+          const h = Math.max(...clump.map((s) => s.y + s.height)) - y + pad
+          return (
+            <div
+              key={`${sec.anchor}:${i}`}
+              data-testid="section-outline"
+              data-section={sec.title}
+              className={cn(
+                'pointer-events-none absolute border-2 border-dashed border-royal/50',
+                sec.assigned ? 'bg-royal/10' : 'bg-royal/5',
+              )}
+              style={{ left: x, top: y, width: w, height: h }}
             >
-              {sec.index}. {sec.title}
-            </span>
-          </div>
-        )
+              <span
+                className="absolute left-0 origin-bottom-left whitespace-nowrap bg-foreground px-1.5 py-0.5 font-mono text-xs font-semibold text-background"
+                style={{ bottom: '100%', transform: `scale(${1 / zoom})` }}
+              >
+                {sec.index}. {sec.title}
+              </span>
+            </div>
+          )
+        })
       })}
     </>
+  )
+}
+
+/**
+ * Floating bar for the current selection: name a section and assign the
+ * selected shapes to it (they become one section in the export, wherever
+ * they sit), remove them from their section, or delete them.
+ */
+function SelectionBar({
+  shapes,
+  sectionNames,
+  onAssign,
+  onUngroup,
+  onDelete,
+}: {
+  shapes: BoardShape[]
+  sectionNames: string[]
+  onAssign: (name: string) => void
+  onUngroup: () => void
+  onDelete: () => void
+}) {
+  const current = new Set(shapes.map(sectionNameOf))
+  const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
+  const anyAssigned = shapes.some((x) => sectionNameOf(x))
+  const assign = () => {
+    if (name.trim()) onAssign(name.trim())
+  }
+  return (
+    <div
+      data-testid="selection-bar"
+      className="absolute bottom-4 left-4 z-20 flex items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
+        {shapes.length} selected
+      </span>
+      <form
+        className="flex items-center gap-1"
+        onSubmit={(e) => {
+          e.preventDefault()
+          assign()
+        }}
+      >
+        <Tag className="size-3.5 text-muted-foreground" aria-hidden />
+        <input
+          data-testid="section-name-input"
+          aria-label="Section name"
+          list="board-section-names"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Section, e.g. Authentication"
+          maxLength={80}
+          className="h-8 w-52 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50"
+        />
+        <datalist id="board-section-names">
+          {sectionNames.map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+        <button
+          type="submit"
+          data-testid="section-assign"
+          disabled={!name.trim()}
+          className="h-8 bg-foreground px-3 text-xs font-bold uppercase tracking-[0.05em] text-background disabled:opacity-30"
+        >
+          Assign
+        </button>
+      </form>
+      {anyAssigned && (
+        <button
+          type="button"
+          data-testid="section-remove"
+          title="Remove the selection from its section (it groups by position again)"
+          onClick={onUngroup}
+          className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20"
+        >
+          <Ungroup className="size-3.5" /> Ungroup
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="selection-delete"
+        title="Delete selected (Del)"
+        aria-label="Delete selected"
+        onClick={onDelete}
+        className="flex size-8 items-center justify-center border border-foreground hover:bg-royal/20"
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </div>
   )
 }

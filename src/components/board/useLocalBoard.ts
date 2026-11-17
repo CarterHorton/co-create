@@ -3,9 +3,10 @@
  * Used by the guest "try it" board: nothing reaches the server, nothing is
  * shared, and clearing site data erases it.
  *
- * Undo/redo snapshots the shape list. A drag fires dozens of moves, so
- * consecutive edits of the same kind to the same shape within a short window
- * collapse into one undo step.
+ * Undo/redo snapshots the shape list. A drag fires dozens of moves (several
+ * shapes at once when a group is dragged), so consecutive moves — or resizes,
+ * or edits to the same prop of the same shape — within a short window collapse
+ * into one undo step.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -56,6 +57,9 @@ export function useLocalBoard(): BoardStore & {
   const past = useRef<BoardShape[][]>([])
   const future = useRef<BoardShape[][]>([])
   const last = useRef<{ key: string; at: number } | null>(null)
+  /** While > 0, edits join the undo step the batch opened. */
+  const batchDepth = useRef(0)
+  const batchRecorded = useRef(false)
 
   useEffect(() => {
     try {
@@ -72,7 +76,10 @@ export function useLocalBoard(): BoardStore & {
     const next = fn(prev)
     if (next === prev) return
     const now = Date.now()
-    const continues = key !== null && last.current?.key === key && now - last.current.at < COALESCE_MS
+    const continues =
+      (batchDepth.current > 0 && batchRecorded.current) ||
+      (key !== null && last.current?.key === key && now - last.current.at < COALESCE_MS)
+    if (batchDepth.current > 0) batchRecorded.current = true
     if (!continues) {
       past.current.push(prev)
       if (past.current.length > MAX_HISTORY) past.current.shift()
@@ -84,8 +91,8 @@ export function useLocalBoard(): BoardStore & {
   }, [])
 
   const patch = useCallback(
-    (op: string, id: string, change: (s: BoardShape) => BoardShape) =>
-      commit(`${op}:${id}`, (prev) => {
+    (key: string, id: string, change: (s: BoardShape) => BoardShape) =>
+      commit(key, (prev) => {
         let hit = false
         const next = prev.map((s) => {
           if (s.id !== id) return s
@@ -137,7 +144,7 @@ export function useLocalBoard(): BoardStore & {
     ),
     update: useCallback(
       (id: string, props: Record<string, unknown>) =>
-        patch(`props:${Object.keys(props).sort().join(',')}`, id, (s) => ({ ...s, props: { ...s.props, ...props } })),
+        patch(`props:${id}:${Object.keys(props).sort().join(',')}`, id, (s) => ({ ...s, props: { ...s.props, ...props } })),
       [patch],
     ),
     undo: useCallback(() => {
@@ -156,6 +163,17 @@ export function useLocalBoard(): BoardStore & {
       current.current = next
       setShapes(next)
     }, []),
+  }
+
+  store.batch = (fn: () => void) => {
+    batchDepth.current += 1
+    if (batchDepth.current === 1) batchRecorded.current = false
+    try {
+      fn()
+    } finally {
+      batchDepth.current -= 1
+      last.current = null
+    }
   }
 
   const clear = useCallback(() => commit(null, (prev) => (prev.length ? [] : prev)), [commit])

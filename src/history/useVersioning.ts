@@ -96,8 +96,9 @@ export function useVersioning({
       update: mark(update),
       undo: mark(undo),
       redo: mark(redo),
+      batch: store.batch,
     }
-  }, [store.shapes, store.connected, store.canWrite, addShape, deleteShape, move, resize, update, undo, redo])
+  }, [store.shapes, store.connected, store.canWrite, store.batch, addShape, deleteShape, move, resize, update, undo, redo])
 
   const previewStore: BoardStore | null = useMemo(
     () =>
@@ -120,7 +121,9 @@ export function useVersioning({
     async (v: Version) => {
       if (!store.canWrite) return
       if (unsaved) await save(`${describeDiff(diffShapes(latest?.snapshot ?? [], toSnapshot(store.shapes))) ?? 'Changes'} (saved before restore)`, false)
-      applyOps(store, restoreOps(toSnapshot(store.shapes), v.snapshot))
+      const ops = restoreOps(toSnapshot(store.shapes), v.snapshot)
+      if (store.batch) store.batch(() => applyOps(store, ops))
+      else applyOps(store, ops)
       setSaving(true)
       try {
         await history.save({

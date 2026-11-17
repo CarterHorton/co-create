@@ -45,6 +45,7 @@ props: {
   from?: string; to?: string                         // arrows: shape ids
   route?: 'straight' | 'elbow' | 'curve'             // arrows
   bend?: { x: number; y: number }                    // arrows: handle offset
+  section?: string                                   // named section, set from the selection bar
   originalCreatedAt?: string                         // set when a version restore re-adds a shape
 }
 
@@ -80,11 +81,13 @@ Revisit only if users want to push a board into an actual repo.
 
 Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
 
-1. **Sections.** Notes whose edges are within 60 px of each other are chained
+1. **Sections.** Notes you assigned to a named section (select them → type a
+   name in the bottom bar → Assign) form that section wherever they are.
+   Every other note is grouped by proximity: edges within 60 px are chained
    into one section (so a row of stickies is one group). Overlap counts, so
    drawing a box around notes groups them. Empty notes are ignored.
-2. **Titles.** A section is titled by its text label, else its box, else the
-   first line of its earliest note.
+2. **Titles.** A named section uses its name; otherwise its text label, else
+   its box, else the first line of its earliest note.
 3. **Order.** Arrows between sections order the sections; arrows inside a
    section order its notes. Ties and arrow cycles fall back to creation time.
 4. **Connections.** Every arrow is written under the note it starts from,
@@ -93,9 +96,10 @@ Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
    comes after), one `##` section per group, and a "Suggested order of work"
    checklist. Same board in → same file out.
 
-Users steer the result by arranging the board: move notes together or apart,
-draw a box around notes to force a group, add a text label to name it, draw
-arrows to set order. The **Show sections** overlay previews the grouping.
+Users steer the result by naming sections explicitly, or by arranging the
+board: move notes together or apart, draw a box around notes to force a
+group, add a text label to name it, draw arrows to set order. The
+**Sections** overlay previews the grouping.
 
 ---
 
@@ -147,8 +151,12 @@ while you browse history.
 - [x] **Sections** toggle outlines each group on the board with its
       number and title, computed by the same `buildSections` the export uses,
       and updates live as notes move
-- [x] Merge / split / rename without extra UI: move notes together or apart,
-      draw a box around notes to force a group, add a text label to name it
+- [x] Named sections: box-select (or Shift-click) notes and assign them to a
+      section such as "Authentication" from the selection bar; they become
+      one section wherever they are, tagged on the board. Ungroup returns
+      them to proximity grouping.
+- [x] Or steer by layout: move notes together or apart, draw a box around
+      notes to force a group, add a text label to name it
 - [x] **Done when:** sections match what a person would draw circles around —
       `tests/try.spec.ts` checks two far-apart notes are two sections and
       become one when dragged together.
@@ -166,6 +174,12 @@ while you browse history.
       `deepspace agent invoke` against the local dev server.
 
 ### Extras built along the way
+- [x] **Selection**: left-drag on empty canvas box-selects, Shift/Ctrl/⌘-click
+      toggles, ⌘A selects all; drag any selected shape to move them all;
+      Delete removes them all (with attached arrows). Middle mouse or
+      Space+drag pans. On guest boards a multi-shape edit is one undo step;
+      on shared boards DeepSpace's CanvasRoom undoes one shape at a time.
+      Verified by `tests/selection.spec.ts`.
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no
       account, no calls, Markdown export works. Linked from every sign-in
       prompt and the landing page. Verified by `tests/try.spec.ts`.

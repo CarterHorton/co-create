@@ -24,6 +24,12 @@ export interface BoardStore {
   update: (id: string, props: Record<string, unknown>) => void
   undo: () => void
   redo: () => void
+  /**
+   * Run several edits as ONE undo step (multi-delete, assigning a section).
+   * Optional: the shared CanvasRoom keeps a per-edit undo stack on the server,
+   * so only the local store can group.
+   */
+  batch?: (fn: () => void) => void
 }
 
 /** Live cursors / avatars. Absent in guest mode. */

@@ -83,6 +83,53 @@ describe('buildSections', () => {
   })
 })
 
+describe('named sections', () => {
+  const named = (id: string, x: number, text: string, section: string, type = 'sticky') => {
+    const n = note(id, x, 0, text, type)
+    n.props.section = section
+    return n
+  }
+
+  it('groups assigned notes by name wherever they are, apart from nearby unassigned notes', () => {
+    const login = named('login', 0, 'Email login', 'Authentication')
+    const reset = named('reset', 3000, 'Password reset', 'Authentication') // far away
+    const neighbour = note('nb', 120, 0, 'Pricing page') // right next to login, unassigned
+    const sections = buildSections([login, reset, neighbour])
+    expect(sections.map((s) => [s.title, s.notes.map((n) => n.text)])).toEqual([
+      ['Authentication', ['Email login', 'Password reset']],
+      ['Pricing page', []],
+    ])
+    expect(sections[0].assigned).toBe(true)
+    expect(sections[0].noteCount).toBe(2)
+  })
+
+  it('matches names case-insensitively and keeps the first spelling', () => {
+    const a = named('a', 0, 'A', 'Billing')
+    const b = named('b', 2000, 'B', '  billing ')
+    const sections = buildSections([a, b])
+    expect(sections).toHaveLength(1)
+    expect(sections[0].title).toBe('Billing')
+  })
+
+  it('treats a text label inside a named section as a note, not the title', () => {
+    const label = named('t', 0, 'Login flow', 'Auth', 'text')
+    const n1 = named('n1', 0, 'Magic link', 'Auth')
+    const [sec] = buildSections([label, n1])
+    expect(sec.title).toBe('Auth')
+    expect(sec.notes.map((n) => n.text)).toEqual(['Login flow', 'Magic link'])
+  })
+
+  it('links arrows between a named section and a proximity section', () => {
+    const md = buildMarkdown(
+      'X',
+      [named('login', 0, 'Email login', 'Authentication'), note('card', 2000, 0, 'Charge card'), arrow('a', 'login', 'card')],
+      { now: new Date('2026-01-01') },
+    )
+    expect(md).toContain('## 1. Authentication')
+    expect(md).toContain('- Email login\n  - → [2. Charge card](#2-charge-card)')
+  })
+})
+
 describe('buildMarkdown', () => {
   it('writes overview, sections with cross-links, and an order of work', () => {
     const shapes = [

@@ -56,6 +56,8 @@ export interface BoardDiff {
   moved: string[]
   resized: string[]
   edited: string[]
+  /** Section assignment changed (selection bar). */
+  grouped: string[]
   restyled: string[]
 }
 
@@ -64,7 +66,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
 export function diffShapes(prev: SnapshotShape[], next: SnapshotShape[]): BoardDiff {
   const before = new Map(prev.map((s) => [s.id, s]))
   const after = new Map(next.map((s) => [s.id, s]))
-  const d: BoardDiff = { added: [], removed: [], moved: [], resized: [], edited: [], restyled: [] }
+  const d: BoardDiff = { added: [], removed: [], moved: [], resized: [], edited: [], grouped: [], restyled: [] }
   for (const s of next) if (!before.has(s.id)) d.added.push(s)
   for (const s of prev) if (!after.has(s.id)) d.removed.push(s)
   for (const n of next) {
@@ -73,8 +75,9 @@ export function diffShapes(prev: SnapshotShape[], next: SnapshotShape[]): BoardD
     if (Math.round(p.x) !== Math.round(n.x) || Math.round(p.y) !== Math.round(n.y)) d.moved.push(n.id)
     if (Math.round(p.width) !== Math.round(n.width) || Math.round(p.height) !== Math.round(n.height)) d.resized.push(n.id)
     if (!same(p.props.text, n.props.text)) d.edited.push(n.id)
-    const { text: _pt, ...pr } = p.props
-    const { text: _nt, ...nr } = n.props
+    if (!same(p.props.section, n.props.section)) d.grouped.push(n.id)
+    const { text: _pt, section: _ps, ...pr } = p.props
+    const { text: _nt, section: _ns, ...nr } = n.props
     if (!same(sortKeys(pr), sortKeys(nr))) d.restyled.push(n.id)
   }
   return d
@@ -109,6 +112,7 @@ export function describeDiff(d: BoardDiff): string | null {
   if (d.edited.length) parts.push(`edited ${d.edited.length}`)
   if (d.moved.length) parts.push(`moved ${d.moved.length}`)
   if (d.resized.length) parts.push(`resized ${d.resized.length}`)
+  if (d.grouped.length) parts.push(`grouped ${d.grouped.length}`)
   if (d.restyled.length) parts.push(`restyled ${d.restyled.length}`)
   if (!parts.length) return null
   const text = parts.join(', ')

@@ -34,6 +34,10 @@ Early scaffold. What exists today:
 - Group call beside each board (LiveKit): join/leave, mute, camera, speaking
   indicator.
 - Arrow styles (straight / elbow / curve) with a drag handle to reshape them.
+- Box-select (left-drag), Shift-click, move and delete many shapes at once;
+  middle mouse or Space+drag to pan.
+- Named sections: select notes and assign them to a section such as
+  "Authentication"; the export groups them under that heading.
 - **Export .md** on every board: preview, copy, download. **Sections**
   outlines the groups the export will use, live as you move notes.
 - Version history: auto-saved versions with a summary of what changed,

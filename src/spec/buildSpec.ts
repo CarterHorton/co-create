@@ -1,11 +1,13 @@
 /**
  * Board → Markdown spec. Deterministic: no AI, same board in, same file out.
  *
- *  1. Sections — notes whose edges are within `gap` px of each other (chained,
- *     so a row of stickies is one group) form a section. Overlapping counts,
- *     so a box drawn around notes groups them.
- *  2. Titles — a section is titled by its text label, else its box, else the
- *     first line of its earliest note.
+ *  1. Sections — notes assigned to a named section (props.section, set from
+ *     the selection bar) form that section wherever they are on the board.
+ *     Every other note is grouped by proximity: notes whose edges are within
+ *     `gap` px of each other (chained, so a row of stickies is one group).
+ *     Overlapping counts, so a box drawn around notes groups them.
+ *  2. Titles — a named section uses its name; otherwise its text label, else
+ *     its box, else the first line of its earliest note.
  *  3. Order — arrows between sections order the sections; arrows inside a
  *     section order its notes. Ties (and cycles) fall back to creation time.
  *  4. Connections — every arrow is written next to the note it starts from,
@@ -37,6 +39,8 @@ export interface SpecSection {
   notes: SpecNote[]
   /** Notes in the section, counting a note whose first line became the title (not a text/box label). */
   noteCount: number
+  /** Named by the user (selection bar) rather than grouped by proximity. */
+  assigned: boolean
   /** Shape ids in this section (including the title shape). */
   ids: Set<string>
   after: SpecSection[]
@@ -46,6 +50,8 @@ export interface SpecSection {
 const DEFAULT_GAP = 60
 
 const textOf = (s: BoardShape) => (typeof s.props.text === 'string' ? s.props.text.trim() : '')
+/** Section name a user assigned to this shape, or ''. */
+export const sectionNameOf = (s: BoardShape) => (typeof s.props.section === 'string' ? s.props.section.trim() : '')
 /** Creation time; a shape re-added by a version restore carries its original in props. */
 const time = (s: BoardShape) =>
   Date.parse(typeof s.props.originalCreatedAt === 'string' ? s.props.originalCreatedAt : s.createdAt) || 0
@@ -113,15 +119,33 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
     .map((a) => [byId.get(String(a.props.from)), byId.get(String(a.props.to))] as const)
     .filter((e): e is readonly [BoardShape, BoardShape] => !!e[0] && !!e[1] && e[0] !== e[1])
 
-  const groups = clusterByProximity(nodes, opts.gap ?? DEFAULT_GAP)
+  // Named sections first (case-insensitive; the first spelling wins), then proximity for the rest.
+  const named = new Map<string, { name: string; shapes: BoardShape[] }>()
+  for (const n of [...nodes].sort(byTime)) {
+    const name = sectionNameOf(n)
+    if (!name) continue
+    const key = name.toLowerCase()
+    if (!named.has(key)) named.set(key, { name, shapes: [] })
+    named.get(key)!.shapes.push(n)
+  }
+  const groups: { name?: string; shapes: BoardShape[] }[] = [
+    ...named.values(),
+    ...clusterByProximity(
+      nodes.filter((n) => !sectionNameOf(n)),
+      opts.gap ?? DEFAULT_GAP,
+    ).map((shapes) => ({ shapes })),
+  ]
 
-  const sections: SpecSection[] = groups.map((group) => {
-    const label = group.find((s) => s.type === 'text') ?? group.find((s) => s.type === 'box')
+  const sections: SpecSection[] = groups.map(({ name, shapes: group }) => {
+    group = [...group].sort(byTime)
+    const label = name ? undefined : (group.find((s) => s.type === 'text') ?? group.find((s) => s.type === 'box'))
     let title: string
     let intro: string[] = []
     let titleShape: BoardShape | undefined
     let rest = group
-    if (label) {
+    if (name) {
+      title = name
+    } else if (label) {
       titleShape = label
       title = textOf(label).split('\n')[0]
       rest = group.filter((s) => s !== label)
@@ -135,8 +159,8 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
     const ids = new Set(group.map((s) => s.id))
     const inner = arrows.filter(([a, b]) => rest.includes(a) && rest.includes(b)) as [BoardShape, BoardShape][]
     const notes = topoOrder(rest, inner, byTime).map((shape) => ({ shape, text: textOf(shape) }))
-    const noteCount = notes.length + (label ? 0 : 1)
-    return { index: 0, title, anchor: '', titleShape, intro, notes, noteCount, ids, after: [], leadsTo: [] }
+    const noteCount = notes.length + (name || label ? 0 : 1)
+    return { index: 0, title, anchor: '', titleShape, intro, notes, noteCount, assigned: !!name, ids, after: [], leadsTo: [] }
   })
 
   const sectionOf = (s: BoardShape) => sections.find((sec) => sec.ids.has(s.id))!
@@ -181,7 +205,8 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   const out: string[] = []
   out.push(`# ${title.trim() || 'Untitled board'}`, '')
   out.push(
-    `_Exported from Co-Create on ${date}. Each section is a group of notes that sat close together on the board. ` +
+    `_Exported from Co-Create on ${date}. Each section is either a group you named on the board or a group of notes ` +
+      `that sat close together. ` +
       `Sections and notes are ordered by their arrows, then by when they were added._`,
     '',
   )

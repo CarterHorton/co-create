@@ -71,9 +71,18 @@ test('a sticky added by one user appears, moves, and updates for the other', asy
 
   await b.page.screenshot({ path: 'test-results/board-two-users.png' })
 
+  // A selects everything and assigns it to a section; B sees the tags.
+  await a.page.keyboard.press('Escape')
+  await a.page.keyboard.press('Control+a')
+  await a.page.getByTestId('section-name-input').fill('Onboarding')
+  await a.page.getByTestId('section-assign').click()
+  await expect(b.page.getByTestId('shape-section-tag')).toHaveCount(2, { timeout: 10_000 })
+  await expect(b.page.getByTestId('shape-section-tag').first()).toHaveText('Onboarding')
+
   // A exports and publishes the spec for agents; the preview has both sections.
   await a.page.getByTestId('export-md').click()
   const preview = a.page.getByTestId('export-preview')
+  await expect(preview).toContainText('## 1. Onboarding')
   await expect(preview).toContainText('Ship the onboarding flow')
   await expect(preview).toContainText('Auth service')
   await a.page.getByTestId('export-publish').click()

@@ -43,6 +43,12 @@ describe('describeDiff', () => {
     const s = toSnapshot([shape('a')])
     expect(describeDiff(diffShapes(s, s))).toBeNull()
   })
+  it('reports section assignment as grouping', () => {
+    const prev = toSnapshot([shape('a'), shape('b')])
+    const next = toSnapshot([shape('a', { props: { text: 'a', section: 'Auth' } }), shape('b', { props: { text: 'b', section: 'Auth' } })])
+    expect(describeDiff(diffShapes(prev, next))).toBe('Grouped 2')
+  })
+
   it('counts style changes separately from text', () => {
     const prev = toSnapshot([shape('x', { type: 'arrow', props: { route: 'straight' } })])
     const next = toSnapshot([shape('x', { type: 'arrow', props: { route: 'curve' } })])
