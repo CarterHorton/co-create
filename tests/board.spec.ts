@@ -70,4 +70,13 @@ test('a sticky added by one user appears, moves, and updates for the other', asy
   await expect(b.page.getByTestId('peer-cursor')).toHaveCount(1, { timeout: 10_000 })
 
   await b.page.screenshot({ path: 'test-results/board-two-users.png' })
+
+  // A exports and publishes the spec for agents; the preview has both sections.
+  await a.page.getByTestId('export-md').click()
+  const preview = a.page.getByTestId('export-preview')
+  await expect(preview).toContainText('Ship the onboarding flow')
+  await expect(preview).toContainText('Auth service')
+  await a.page.getByTestId('export-publish').click()
+  await expect(a.page.getByTestId('publish-done')).toContainText('spec_get', { timeout: 15_000 })
+  await expect(a.page.getByTestId('publish-done')).toContainText(boardUrl.split('/').pop()!)
 })

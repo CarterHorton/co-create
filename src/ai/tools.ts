@@ -94,7 +94,90 @@ export function buildTools(executor: ToolExecutor): ToolSet {
     })
   }
 
+  addSpecTools(tools, executor)
   return tools
+}
+
+// ============================================================================
+// Co-Create: published Markdown specs (read-only)
+// ============================================================================
+
+interface SpecRecord {
+  recordId: string
+  createdAt: string
+  data: { boardId: string; title: string; markdown: string; authorName?: string }
+}
+
+/** The executor answers `{ success, data: { records: [...] } }`; a failure has no records. */
+function recordsOf(result: unknown): SpecRecord[] {
+  const r = (result as { data?: { records?: unknown } } | null)?.data?.records
+  return Array.isArray(r) ? (r as SpecRecord[]) : []
+}
+
+/**
+ * Let a coding agent pull a board's spec directly:
+ *   npx deepspace agent invoke co-create specs_list --json
+ *   npx deepspace agent invoke co-create spec_get --input '{"boardId":"…"}' --json
+ * Both run as the caller, through the normal `specs` permissions.
+ */
+function addSpecTools(tools: ToolSet, executor: ToolExecutor) {
+  tools.specs_list = tool({
+    description:
+      'List Markdown specs published from Co-Create boards, newest first. Returns boardId, title, author and ' +
+      'publish time (not the Markdown). Use spec_get to fetch one.',
+    inputSchema: zodInputSchema(
+      z.object({ limit: z.number().int().min(1).max(100).optional().describe('Max specs to return (default 20)') }),
+    ),
+    execute: async (params: Record<string, unknown>) => {
+      const limit = typeof params.limit === 'number' ? params.limit : 20
+      const result = await executor('records.query', {
+        collection: 'specs',
+        orderBy: 'createdAt',
+        orderDir: 'desc',
+        limit,
+      })
+      return recordsOf(result).map((r) => ({
+        specId: r.recordId,
+        boardId: r.data.boardId,
+        title: r.data.title,
+        author: r.data.authorName ?? null,
+        publishedAt: r.createdAt,
+      }))
+    },
+  })
+
+  tools.spec_get = tool({
+    description:
+      'Get a published Co-Create spec as Markdown: the latest one for a board (boardId), or a specific one ' +
+      '(specId). The Markdown groups the board into ordered sections with their notes and connections — ' +
+      'treat it as the task specification to implement.',
+    inputSchema: zodInputSchema(
+      z.object({
+        boardId: z.string().optional().describe('Board id; returns its most recently published spec'),
+        specId: z.string().optional().describe('A specific spec id from specs_list'),
+      }),
+    ),
+    execute: async (params: Record<string, unknown>) => {
+      const { boardId, specId } = params as { boardId?: string; specId?: string }
+      if (!boardId && !specId) return { error: 'Pass boardId or specId (see specs_list).' }
+      const result = await executor('records.query', {
+        collection: 'specs',
+        where: specId ? { recordId: specId } : { boardId },
+        orderBy: 'createdAt',
+        orderDir: 'desc',
+        limit: 1,
+      })
+      const spec = recordsOf(result)[0]
+      if (!spec) return { error: 'No published spec found. Publish one from Export .md on the board.' }
+      return {
+        specId: spec.recordId,
+        boardId: spec.data.boardId,
+        title: spec.data.title,
+        publishedAt: spec.createdAt,
+        markdown: spec.data.markdown,
+      }
+    },
+  })
 }
 
 // ============================================================================
@@ -135,7 +218,11 @@ function buildInputSchema(def: ToolSchema) {
     shape[name] = s
   }
 
-  const validator = z.object(shape)
+  return zodInputSchema(z.object(shape))
+}
+
+/** Provider-facing JSON Schema derived from a Zod object, validated by the same Zod object. */
+function zodInputSchema(validator: z.ZodObject) {
   return jsonSchema<Record<string, unknown>>(
     z.toJSONSchema(validator) as Parameters<typeof jsonSchema>[0],
     {

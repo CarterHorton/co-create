@@ -33,7 +33,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
-import { ExportDialog } from './ExportDialog'
+import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections } from '@/spec/buildSpec'
 import {
   ARROW_ROUTES,
@@ -83,11 +83,13 @@ interface WhiteboardProps {
   presence?: BoardPresence
   /** Status badge text when connected (overrides "Live" / "Live · view only"). */
   statusLabel?: string
+  /** Lets the export dialog publish the spec for agents (signed-in boards). */
+  publisher?: SpecPublisher
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
   const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = store
   const peers = presence?.peers ?? NO_PEERS
   const updateState = presence?.updateState
@@ -644,7 +646,9 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
         </div>
       </div>
 
-      {exportOpen && <ExportDialog title={title} shapes={shapes} onClose={() => setExportOpen(false)} />}
+      {exportOpen && (
+        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} />
+      )}
     </div>
   )
 

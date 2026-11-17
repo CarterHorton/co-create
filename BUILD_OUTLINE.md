@@ -156,9 +156,14 @@ while you browse history.
 ### Phase 5 — Spec export (no AI)
 - [x] Rule-based Markdown builder (`src/spec/buildSpec.ts`) + tests
 - [x] Export dialog: preview, copy, download `<board>.md` (cloud and guest)
-- [ ] Publish a spec to the `specs` collection so agents can fetch it with the
-      app's record tools (`npx deepspace agent invoke …`)
-- **Done when:** a board turns into a spec an agent can act on unmodified.
+- [x] **Publish for agents** in the export dialog (signed-in boards) saves the
+      Markdown to the `specs` collection (append-only; newest per board wins)
+- [x] Agent tools in `src/ai/tools.ts`: `specs_list` and `spec_get` (read-only,
+      run as the caller with normal permissions):
+      `npx deepspace agent invoke co-create spec_get --input '{"boardId":"…"}' --json`
+- [x] **Done when:** a board turns into a spec an agent can act on unmodified —
+      `tests/board.spec.ts` publishes from the UI; the tools were checked with
+      `deepspace agent invoke` against the local dev server.
 
 ### Extras built along the way
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no

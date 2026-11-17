@@ -4,7 +4,9 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
-import { usePresenceRoom, useQuery, useUser } from 'deepspace'
+import { useMemo } from 'react'
+import { useMutations, usePresenceRoom, useQuery, useUser } from 'deepspace'
+import type { SpecPublisher } from '@/components/board/ExportDialog'
 import { ArrowLeft } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
@@ -66,6 +68,16 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
   const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
+  const { createConfirmed: createSpec } = useMutations<{ boardId: string; title: string; markdown: string; authorName: string }>('specs')
+  const publisher = useMemo<SpecPublisher>(
+    () => ({
+      publish: async ({ title: t, markdown }) => {
+        await createSpec({ boardId, title: t, markdown, authorName: userName })
+      },
+      fetchCommand: `npx deepspace agent invoke co-create spec_get --input '{"boardId":"${boardId}"}' --json`,
+    }),
+    [createSpec, boardId, userName],
+  )
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -77,6 +89,7 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             title={exportTitle}
             presence={presence}
             statusLabel={v.preview ? 'Viewing past version' : undefined}
+            publisher={publisher}
           />
         </div>
       </div>

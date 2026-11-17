@@ -57,6 +57,20 @@ See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 | Guest boards         | `localStorage` only (`/try`): no account, no calls                 |
 | UI                   | React 19, Tailwind v4, Base UI primitives in `src/components/ui`   |
 
+## Handing a board to an agent
+
+1. On a board, click **Export .md** → **Download**, or **Publish for agents**.
+2. A coding agent (Claude Code, Codex, …) logged in with the DeepSpace CLI can
+   then pull it directly:
+
+```bash
+npx deepspace agent invoke co-create specs_list --json
+npx deepspace agent invoke co-create spec_get --input '{"boardId":"<board id>"}' --json
+```
+
+The board id is the last part of the board's URL. Guest boards (`/try`) can
+only download — they never reach the server.
+
 ## Getting started
 
 Prerequisites: Node.js 22.15+ (or 24 / 26) and npm 11.6+.
