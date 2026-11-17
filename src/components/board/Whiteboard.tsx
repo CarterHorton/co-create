@@ -616,8 +616,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               onPointerDown={(e) => onShapePointerDown(e, s)}
               onResizePointerDown={(e) => onResizePointerDown(e, s)}
               onStartEdit={() => canWrite && setEditing({ id: s.id })}
-              onCommit={(text) => {
-                if (text !== shapeText(s)) update(s.id, { text })
+              onSave={(text) => update(s.id, { text })}
+              onDone={() => {
                 setEditing(null)
                 setSelectedId(s.id)
               }}
@@ -697,7 +697,10 @@ interface ShapeViewProps {
   onPointerDown: (e: ReactPointerEvent) => void
   onResizePointerDown: (e: ReactPointerEvent) => void
   onStartEdit: () => void
-  onCommit: (text: string) => void
+  /** Persist the text (also called when editing ends by clicking elsewhere). */
+  onSave: (text: string) => void
+  /** Leave edit mode, keeping the shape selected (Enter / Escape / blur). */
+  onDone: () => void
 }
 
 function ShapeView({
@@ -709,7 +712,8 @@ function ShapeView({
   onPointerDown,
   onResizePointerDown,
   onStartEdit,
-  onCommit,
+  onSave,
+  onDone,
 }: ShapeViewProps) {
   const text = shapeText(s)
   const sticky = s.type === 'sticky' ? STICKY_COLORS[stickyColor(s)] : null
@@ -744,7 +748,8 @@ function ShapeView({
         <EditText
           initial={text}
           className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold')}
-          onCommit={onCommit}
+          onSave={onSave}
+          onDone={onDone}
         />
       ) : (
         <p
@@ -770,37 +775,72 @@ function ShapeView({
   )
 }
 
+/**
+ * Text editor for a shape. Whatever is typed is saved however editing ends:
+ * Enter (Shift+Enter adds a line), Escape, blur, or the editor being removed
+ * because the user clicked another shape or the canvas. That last case
+ * matters: the click ends editing during pointerdown, which unmounts the
+ * textarea before the browser's blur would fire.
+ */
 function EditText({
   initial,
   className,
-  onCommit,
+  onSave,
+  onDone,
 }: {
   initial: string
   className?: string
-  onCommit: (text: string) => void
+  onSave: (text: string) => void
+  onDone: () => void
 }) {
   const [value, setValue] = useState(initial)
+  const latest = useRef(initial)
+  const saved = useRef(initial)
+  const saveRef = useRef(onSave)
+  useEffect(() => {
+    saveRef.current = onSave
+  }, [onSave])
+
+  const flush = useCallback(() => {
+    if (latest.current === saved.current) return
+    saved.current = latest.current
+    saveRef.current(latest.current)
+  }, [])
+
+  // Save on unmount (click-away), not only on blur.
+  useEffect(() => flush, [flush])
+
+  const finish = () => {
+    flush()
+    onDone()
+  }
+
   return (
     <textarea
       data-testid="shape-editor"
       autoFocus
       value={value}
-      onChange={(e) => setValue(e.target.value)}
+      onChange={(e) => {
+        latest.current = e.target.value
+        setValue(e.target.value)
+      }}
       onFocus={(e) => e.currentTarget.select()}
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      onBlur={() => onCommit(value)}
+      onBlur={finish}
       onKeyDown={(e) => {
-        if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+        // Enter finishes; Shift+Enter is a new line. Leave IME composition alone.
+        if (e.nativeEvent.isComposing) return
+        if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
           e.preventDefault()
-          onCommit(value)
+          finish()
         }
       }}
       className={cn(
         'h-full w-full resize-none bg-transparent leading-snug text-inherit outline-none placeholder:text-current placeholder:opacity-40',
         className,
       )}
-      placeholder="Type…"
+      placeholder="Type… (Enter to finish, Shift+Enter for a new line)"
     />
   )
 }
