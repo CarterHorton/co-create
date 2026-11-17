@@ -25,6 +25,7 @@ import {
   Tag,
   Ungroup,
   Minus,
+  Palette,
   Slash,
   Spline,
   MousePointer2,
@@ -46,12 +47,18 @@ import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
   MIN_SIZE,
+  FILL_COLORS,
+  INK_COLORS,
   STICKY_COLORS,
   arrowBend,
   arrowGeometry,
   arrowRoute,
+  fillOf,
+  shapeColors,
   shapeText,
   stickyColor,
+  strokeOf,
+  textColorOf,
   type StickyColor,
 } from './shapes'
 
@@ -166,6 +173,12 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const assignSection = (name: string | null, subsection: string | null = null) =>
     batch(() => {
       for (const x of selectedNotes) update(x.id, { section: name, subsection: name ? subsection : null })
+    })
+
+  /** Text color applies to any note, box or label; fill and border only to boxes. */
+  const restyle = (key: 'textColor' | 'fill' | 'stroke', value: string | null) =>
+    batch(() => {
+      for (const x of selectedNotes) if (key === 'textColor' || x.type === 'box') update(x.id, { [key]: value })
     })
 
   const toWorld = useCallback(
@@ -679,6 +692,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           sectionNames={sectionNames}
           onAssign={(name, sub) => assignSection(name, sub)}
           onUngroup={() => assignSection(null)}
+          onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
         />
       )}
@@ -927,7 +941,7 @@ function ShapeView({
   onDone,
 }: ShapeViewProps) {
   const text = shapeText(s)
-  const sticky = s.type === 'sticky' ? STICKY_COLORS[stickyColor(s)] : null
+  const colors = shapeColors(s)
 
   return (
     <div
@@ -951,8 +965,7 @@ function ShapeView({
         top: s.y,
         width: s.width,
         height: s.height,
-        background: sticky?.bg,
-        color: sticky?.fg,
+        ...colors,
       }}
     >
       {editing ? (
@@ -1150,6 +1163,7 @@ function SelectionBar({
   sectionNames,
   onAssign,
   onUngroup,
+  onRestyle,
   onDelete,
 }: {
   shapes: BoardShape[]
@@ -1157,8 +1171,10 @@ function SelectionBar({
   sectionNames: Map<string, string[]>
   onAssign: (name: string, subsection: string | null) => void
   onUngroup: () => void
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
   onDelete: () => void
 }) {
+  const [colorsOpen, setColorsOpen] = useState(false)
   const current = new Set(shapes.map(sectionNameOf))
   const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
@@ -1241,6 +1257,19 @@ function SelectionBar({
         </button>
         </Hint>
       )}
+      <button
+        type="button"
+        data-testid="selection-colors"
+        aria-expanded={colorsOpen}
+        onClick={() => setColorsOpen((v) => !v)}
+        className={cn(
+          'flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em]',
+          colorsOpen ? 'bg-foreground text-background' : 'hover:bg-royal/20',
+        )}
+      >
+        <Palette className="size-3.5" /> Color
+      </button>
+      {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} />}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"
@@ -1252,6 +1281,75 @@ function SelectionBar({
         <Trash2 className="size-3.5" />
       </button>
       </Hint>
+    </div>
+  )
+}
+
+/**
+ * Colors for the selection: text color for every selected note, box and
+ * label; fill and border for selected boxes. "Default" clears the choice.
+ */
+function ColorPanel({
+  shapes,
+  onRestyle,
+}: {
+  shapes: BoardShape[]
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
+}) {
+  const boxes = shapes.filter((x) => x.type === 'box')
+  /** The value all of `list` share, or undefined when they differ. */
+  const shared = <T,>(list: BoardShape[], of: (s: BoardShape) => T) => {
+    const vals = new Set(list.map(of))
+    return vals.size === 1 ? [...vals][0] : undefined
+  }
+  const rows: { key: 'textColor' | 'fill' | 'stroke'; label: string; table: Record<string, { value: string; label: string }>; current: string | null | undefined }[] = [
+    { key: 'textColor', label: 'Text', table: INK_COLORS, current: shared(shapes, textColorOf) },
+  ]
+  if (boxes.length) {
+    rows.push(
+      { key: 'fill', label: 'Box fill', table: FILL_COLORS, current: shared(boxes, fillOf) },
+      { key: 'stroke', label: 'Box border', table: INK_COLORS, current: shared(boxes, strokeOf) },
+    )
+  }
+  return (
+    <div
+      data-testid="color-panel"
+      className="absolute bottom-full left-0 mb-2 flex flex-col gap-1.5 border border-foreground bg-background p-2 shadow-[4px_4px_0_0_#000]"
+    >
+      {rows.map((row) => (
+        <div key={row.key} className="flex items-center gap-1" role="group" aria-label={row.label}>
+          <span className="w-20 font-mono text-[11px] font-semibold uppercase">{row.label}</span>
+          <button
+            type="button"
+            data-testid={`${row.key}-default`}
+            aria-label={`${row.label}: default`}
+            aria-pressed={row.current === null}
+            onClick={() => onRestyle(row.key, null)}
+            className={cn(
+              'h-5 border border-foreground px-1 font-mono text-[10px] hover:bg-royal/20',
+              row.current === null && 'outline outline-2 outline-offset-1 outline-royal/50',
+            )}
+          >
+            Default
+          </button>
+          {Object.entries(row.table).map(([name, c]) => (
+            <button
+              key={name}
+              type="button"
+              data-testid={`${row.key}-${name}`}
+              aria-label={`${row.label}: ${c.label}`}
+              title={c.label}
+              aria-pressed={row.current === name}
+              onClick={() => onRestyle(row.key, name)}
+              className={cn(
+                'size-5 border border-foreground',
+                row.current === name && 'outline outline-2 outline-offset-1 outline-royal/50',
+              )}
+              style={{ background: c.value }}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   )
 }

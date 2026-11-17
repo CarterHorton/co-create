@@ -42,6 +42,8 @@ type ShapeType = 'sticky' | 'box' | 'text' | 'arrow'
 props: {
   text?: string
   color?: 'white' | 'gray' | 'blue' | 'black'      // stickies
+  textColor?: string                                 // any note, box or label (INK_COLORS name)
+  fill?: string; stroke?: string                     // boxes: FILL_COLORS / INK_COLORS name
   from?: string; to?: string                         // arrows: shape ids
   route?: 'straight' | 'elbow' | 'curve'             // arrows
   bend?: { x: number; y: number }                    // arrows: handle offset
@@ -206,6 +208,10 @@ while you browse history.
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no
       account, no calls, Markdown export works. Linked from every sign-in
       prompt and the landing page. Verified by `tests/try.spec.ts`.
+- [x] **Colors**: select shapes → **Color** in the selection bar: text color
+      for notes, boxes and labels; fill and border for boxes (a dark fill
+      turns default text white). Palette in `shapes.ts`. Verified by
+      `tests/colors.spec.ts`.
 - [x] **Arrow styles**: straight, elbow, curve. Select an arrow to switch its
       style or drag its handle to reshape it (curve passes through the
       handle; elbow handle slides the middle segment).
