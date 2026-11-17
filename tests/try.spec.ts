@@ -62,6 +62,11 @@ test('guest board saves locally, reshapes arrows, and exports Markdown', async (
   await expect(page.getByTestId('board-arrow')).toHaveAttribute('data-route', 'elbow')
   await expect(page.getByTestId('try-title')).toHaveValue('Guest plan')
 
+  // Sections overlay matches the export's grouping.
+  await page.getByTestId('toggle-sections').click()
+  const outlines = page.getByTestId('section-outline')
+  await expect(outlines).toHaveCount(2)
+  await expect(outlines.first()).toContainText('1. Design the login page')
   await page.screenshot({ path: 'test-results/try-board.png' })
 
   // Export.
@@ -75,6 +80,17 @@ test('guest board saves locally, reshapes arrows, and exports Markdown', async (
   expect(download.suggestedFilename()).toBe('guest-plan.md')
   await page.screenshot({ path: 'test-results/try-export.png' })
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('export-preview')).toHaveCount(0)
+
+  // Drag the second note next to the first: one section now.
+  const second = page.getByTestId('shape-sticky').nth(1)
+  const first = (await page.getByTestId('shape-sticky').nth(0).boundingBox())!
+  const sb = (await second.boundingBox())!
+  await page.mouse.move(sb.x + 20, sb.y + 20)
+  await page.mouse.down()
+  await page.mouse.move(first.x + first.width + 40, first.y + 20, { steps: 10 })
+  await page.mouse.up()
+  await expect(outlines).toHaveCount(1)
 
   // Nothing went to the shared canvas / presence rooms.
   expect(canvasSockets).toEqual([])

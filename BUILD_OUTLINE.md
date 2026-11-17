@@ -144,9 +144,14 @@ while you browse history.
 
 ### Phase 4 — Sections overlay
 - [x] Pure grouping by proximity (`clusterByProximity`) with unit tests
-- [ ] **Show sections** toggle outlines each group on the board with its
-      number and title, exactly as the export will use them
-- **Done when:** sections match what a person would draw circles around.
+- [x] **Sections** toggle outlines each group on the board with its
+      number and title, computed by the same `buildSections` the export uses,
+      and updates live as notes move
+- [x] Merge / split / rename without extra UI: move notes together or apart,
+      draw a box around notes to force a group, add a text label to name it
+- [x] **Done when:** sections match what a person would draw circles around —
+      `tests/try.spec.ts` checks two far-apart notes are two sections and
+      become one when dragged together.
 
 ### Phase 5 — Spec export (no AI)
 - [x] Rule-based Markdown builder (`src/spec/buildSpec.ts`) + tests

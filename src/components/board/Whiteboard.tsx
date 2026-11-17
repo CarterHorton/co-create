@@ -18,6 +18,7 @@ import {
   ArrowUpRight,
   CornerDownRight,
   FileDown,
+  Group,
   Minus,
   Slash,
   Spline,
@@ -33,6 +34,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog } from './ExportDialog'
+import { buildSections } from '@/spec/buildSpec'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -99,6 +101,7 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
   const [panning, setPanning] = useState(false)
   const [route, setRoute] = useState<ArrowRoute>('straight')
   const [exportOpen, setExportOpen] = useState(false)
+  const [showSections, setShowSections] = useState(false)
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
@@ -473,6 +476,19 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
         </div>
         <button
           type="button"
+          data-testid="toggle-sections"
+          aria-pressed={showSections}
+          title="Outline the sections the Markdown export will use"
+          onClick={() => setShowSections((v) => !v)}
+          className={cn(
+            'flex items-center gap-1.5 border border-foreground px-2.5 py-1 text-xs font-bold uppercase tracking-[0.05em] shadow-[2px_2px_0_0_#000]',
+            showSections ? 'bg-foreground text-background' : 'bg-background hover:bg-royal/20',
+          )}
+        >
+          <Group className="size-3.5" /> Sections
+        </button>
+        <button
+          type="button"
           data-testid="export-md"
           onClick={() => setExportOpen(true)}
           className="flex items-center gap-1.5 border border-foreground bg-background px-2.5 py-1 text-xs font-bold uppercase tracking-[0.05em] shadow-[2px_2px_0_0_#000] hover:bg-royal/20"
@@ -583,6 +599,8 @@ export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardPr
               )
             })}
           </svg>
+
+          {showSections && <SectionsOverlay shapes={shapes} zoom={cam.zoom} />}
 
           {/* Shapes */}
           {boxes.map((s) => (
@@ -780,5 +798,42 @@ function EditText({
       )}
       placeholder="Type…"
     />
+  )
+}
+
+/**
+ * Outlines each section exactly as the Markdown export will group and number
+ * it, so people can arrange the board before exporting.
+ */
+function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number }) {
+  const sections = useMemo(() => buildSections(shapes), [shapes])
+  const byId = useMemo(() => new Map(shapes.map((s) => [s.id, s])), [shapes])
+  const pad = 16
+  return (
+    <>
+      {sections.map((sec) => {
+        const members = [...sec.ids].map((id) => byId.get(id)).filter((s): s is BoardShape => !!s)
+        if (!members.length) return null
+        const x = Math.min(...members.map((s) => s.x)) - pad
+        const y = Math.min(...members.map((s) => s.y)) - pad
+        const w = Math.max(...members.map((s) => s.x + s.width)) - x + pad
+        const h = Math.max(...members.map((s) => s.y + s.height)) - y + pad
+        return (
+          <div
+            key={sec.anchor}
+            data-testid="section-outline"
+            className="pointer-events-none absolute border-2 border-dashed border-royal/50 bg-royal/5"
+            style={{ left: x, top: y, width: w, height: h }}
+          >
+            <span
+              className="absolute left-0 origin-bottom-left whitespace-nowrap bg-foreground px-1.5 py-0.5 font-mono text-xs font-semibold text-background"
+              style={{ bottom: '100%', transform: `scale(${1 / zoom})` }}
+            >
+              {sec.index}. {sec.title}
+            </span>
+          </div>
+        )
+      })}
+    </>
   )
 }

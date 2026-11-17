@@ -34,7 +34,8 @@ Early scaffold. What exists today:
 - Group call beside each board (LiveKit): join/leave, mute, camera, speaking
   indicator.
 - Arrow styles (straight / elbow / curve) with a drag handle to reshape them.
-- **Export .md** on every board: preview, copy, download.
+- **Export .md** on every board: preview, copy, download. **Sections**
+  outlines the groups the export will use, live as you move notes.
 - Version history: auto-saved versions with a summary of what changed,
   manual saves with a message, preview, export, and restore any version.
 - Guest mode at `/try`: try the whiteboard without an account; everything is
