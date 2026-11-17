@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections } from '@/spec/buildSpec'
+import { createWheelStepper, stepZoom } from './zoom'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -72,8 +73,6 @@ const TOOLS: { id: Tool; label: string; key: string; Icon: typeof Square }[] = [
 
 const ROUTE_ICONS: Record<ArrowRoute, typeof Square> = { straight: Slash, elbow: CornerDownRight, curve: Spline }
 
-const MIN_ZOOM = 0.2
-const MAX_ZOOM = 3
 
 interface WhiteboardProps {
   store: BoardStore
@@ -133,12 +132,14 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     [cam],
   )
 
-  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
+  /** Step one 25% zoom level in (1) or out (-1), keeping the point under (clientX, clientY) fixed. */
+  const zoomAt = useCallback((clientX: number, clientY: number, dir: 1 | -1) => {
     const r = viewportRef.current?.getBoundingClientRect()
     const px = clientX - (r?.left ?? 0)
     const py = clientY - (r?.top ?? 0)
     setCam((c) => {
-      const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, c.zoom * factor))
+      const zoom = stepZoom(c.zoom, dir)
+      if (zoom === c.zoom) return c
       return { zoom, x: px - ((px - c.x) * zoom) / c.zoom, y: py - ((py - c.y) * zoom) / c.zoom }
     })
   }, [])
@@ -295,10 +296,13 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
+    const wheelStep = createWheelStepper()
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01))
-      else setCam((c) => ({ ...c, x: c.x - e.deltaX, y: c.y - e.deltaY }))
+      if (e.ctrlKey || e.metaKey) {
+        const dir = wheelStep(e.deltaY, e.deltaMode)
+        if (dir) zoomAt(e.clientX, e.clientY, dir)
+      } else setCam((c) => ({ ...c, x: c.x - e.deltaX, y: c.y - e.deltaY }))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -508,7 +512,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
 
       {/* Zoom */}
       <div className="absolute bottom-4 right-4 z-20 flex items-center border border-foreground bg-background">
-        <ToolbarButton label="Zoom out" onClick={() => zoomAtCenter(1 / 1.2)}>
+        <ToolbarButton label="Zoom out" onClick={() => zoomAtCenter(-1)}>
           <Minus className="size-4" />
         </ToolbarButton>
         <button
@@ -519,7 +523,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         >
           {Math.round(cam.zoom * 100)}%
         </button>
-        <ToolbarButton label="Zoom in" onClick={() => zoomAtCenter(1.2)} last>
+        <ToolbarButton label="Zoom in" onClick={() => zoomAtCenter(1)} last>
           <Plus className="size-4" />
         </ToolbarButton>
       </div>
@@ -652,9 +656,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     </div>
   )
 
-  function zoomAtCenter(factor: number) {
+  function zoomAtCenter(dir: 1 | -1) {
     const r = viewportRef.current?.getBoundingClientRect()
-    if (r) zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor)
+    if (r) zoomAt(r.left + r.width / 2, r.top + r.height / 2, dir)
   }
 }
 
