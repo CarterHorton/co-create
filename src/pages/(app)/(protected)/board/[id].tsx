@@ -7,7 +7,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useMemo } from 'react'
 import { useMutations, usePresenceRoom, useQuery, useUser } from 'deepspace'
 import type { SpecPublisher } from '@/components/board/ExportDialog'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, History } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useBoard } from '@/components/board/useBoard'
@@ -101,6 +101,8 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             label: 'History',
             badge: v.unsaved ? <span aria-label="unsaved changes" className="size-1.5 bg-royal/50" /> : null,
             content: <HistoryPanel v={v} canWrite={store.canWrite} />,
+            closable: true,
+            Icon: History,
           },
         ]}
       />

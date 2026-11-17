@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import { AuthOverlay, useAuthStatus } from 'deepspace'
-import { Eraser, TriangleAlert } from 'lucide-react'
+import { Eraser, TriangleAlert, History } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useLocalBoard } from '@/components/board/useLocalBoard'
@@ -66,7 +66,7 @@ export default function TryPage() {
             <Whiteboard store={v.viewStore} title={exportTitle} statusLabel={v.preview ? 'Viewing past version' : 'Saved in this browser'} />
           </div>
         </div>
-        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite /> }]} />
+        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, closable: true, Icon: History }]} />
       </div>
       {signIn && <AuthOverlay onClose={() => setSignIn(false)} />}
     </div>

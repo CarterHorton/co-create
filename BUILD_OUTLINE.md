@@ -208,6 +208,11 @@ while you browse history.
 - [x] **Guest mode** (`/try`): one board saved only in this browser, no
       account, no calls, Markdown export works. Linked from every sign-in
       prompt and the landing page. Verified by `tests/try.spec.ts`.
+- [x] **Closable History**: the History tab starts open and has a ×; a
+      History button reopens it. It stays mounted while closed. On guest
+      boards (History is the only tab) closing it folds the sidebar to a
+      thin rail; on shared boards the Call tab stays. Verified by
+      `tests/sidebar.spec.ts`.
 - [x] **PDF export**: Export dialog → **PDF** downloads the whole board
       (every shape, not just what's on screen) as one page. Redrawn from the
       shapes onto a canvas capped at 1600 px on its longest side (never
