@@ -227,10 +227,12 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
 const link = (s: SpecSection) => `[${s.index}. ${s.title}](#${s.anchor})`
 
 /** Explain only the notation this file actually uses. */
-function readingKey(used: { steps: boolean; nested: boolean; forward: boolean; loops: boolean }) {
+function readingKey(used: { steps: boolean; bullets: boolean; nested: boolean; forward: boolean; loops: boolean }) {
   const parts = [
     used.steps && 'Numbered notes are steps, in order.',
-    used.nested && 'Plain notes indented under another note are its options or parts.',
+    used.bullets && 'Bulleted notes are things to build, in no set order.',
+    used.nested &&
+      'Notes indented under another note branch off it, and that note names what they belong to: build every branch unless the note says to pick one.',
     used.forward && 'A line starting with `→` means "leads to": the next step, or something that builds on this note.',
     used.loops && '`↺ back to` means the work repeats from an earlier step — a cycle, not a new step.',
   ].filter(Boolean)
@@ -314,8 +316,8 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   const out: string[] = []
   out.push(`# ${title.trim() || 'Untitled board'}`, '')
   out.push(
-    `_Exported from Co-Create on ${date}. Each section is either a group you named on the board or a group of notes ` +
-      `that sat close together. Sections and notes are ordered by their arrows, then by when they were added._`,
+    `_Exported from Co-Create on ${date}. Each section is a group of notes from the board, and each connection is an arrow drawn ` +
+      `between two notes. Sections and notes are ordered by their arrows; where there are none, by when they were added._`,
     '',
   )
 
@@ -350,6 +352,9 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     const count = (i: { loop: boolean }) => (i.loop ? loopN++ : forwardN++)
 
     body.push(`## ${s.index}. ${s.title}`, '')
+    if (!s.assigned && sections.length > 1) {
+      body.push("_Not named on the board: these notes are grouped because they sat close together._", '')
+    }
     const rel: string[] = []
     if (s.after.length) rel.push(`Comes after: ${s.after.map(link).join(', ')}`)
     if (s.leadsTo.length) rel.push(`Leads to: ${s.leadsTo.map(link).join(', ')}`)
@@ -388,6 +393,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   const stepN = [...layouts.values()].reduce((n, l) => n + l.stepArrows, 0)
   const key = readingKey({
     steps: [...layouts.values()].some((l) => l.flow),
+    bullets: [...layouts.values()].some((l) => !l.flow && l.top.length > 0),
     nested: nestedN > 0,
     forward: forwardN > 0,
     loops: loopN > 0,
@@ -407,10 +413,12 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
       '.',
     '',
   )
-  out.push('| # | Section | Notes | Comes after |', '|---|---|---|---|')
+  // The "Comes after" column only earns its place when some section depends on another.
+  const deps = sections.some((s) => s.after.length)
+  out.push(deps ? '| # | Section | Notes | Comes after |' : '| # | Section | Notes |', deps ? '|---|---|---|---|' : '|---|---|---|')
   for (const s of sections) {
     const after = s.after.length ? s.after.map((a) => a.index).join(', ') : '—'
-    out.push(`| ${s.index} | [${s.title}](#${s.anchor}) | ${s.noteCount} | ${after} |`)
+    out.push(`| ${s.index} | [${s.title}](#${s.anchor}) | ${s.noteCount} |${deps ? ` ${after} |` : ''}`)
   }
   out.push('', ...body)
 
@@ -420,8 +428,8 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     out.push(`One section: work through ${titleLink(sections[0])} from top to bottom.`, '')
   } else if (sections.every((s) => !s.after.length)) {
     out.push(
-      "No arrows connect the sections, so they don't depend on each other: build them in any order, or in " +
-        'parallel. They are numbered in the order they were drawn.',
+      "No arrows connect the sections, so the board doesn't say that one depends on another: build them in " +
+        'any order, or in parallel, unless something in the notes says otherwise.',
       '',
     )
   } else {

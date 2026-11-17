@@ -146,7 +146,9 @@ describe('buildMarkdown', () => {
     expect(md).toContain('2 sections, 2 notes, 1 connection.')
     expect(md).toContain('| 1 | [Auth](#1-auth) | 1 | — |')
     expect(md).toContain('| 2 | [Billing](#2-billing) | 1 | 1 |')
-    expect(md).toContain('## 1. Auth\n\n_Leads to: [2. Billing](#2-billing)_')
+    expect(md).toContain(
+      '## 1. Auth\n\n_Not named on the board: these notes are grouped because they sat close together._\n\n_Leads to: [2. Billing](#2-billing)_',
+    )
     // Line breaks inside a box are joined into one line.
     expect(md).toContain('- Email login magic link only\n  - → [2. Billing](#2-billing): Charge card')
     expect(md).toContain('_Comes after: [1. Auth](#1-auth)_')
@@ -182,7 +184,8 @@ describe('buildMarkdown', () => {
 
     // The label that repeats the section name is the title, not a note.
     expect(md).not.toMatch(/^- Authentication$/m)
-    expect(md).toContain('| 1 | [Authentication](#1-authentication) | 4 | — |')
+    // No section depends on another, so there's no empty "Comes after" column.
+    expect(md).toContain('| # | Section | Notes |\n|---|---|---|\n| 1 | [Authentication](#1-authentication) | 4 |\n')
     // Every connection is accounted for, even the ones shown by layout.
     expect(md).toContain('2 sections, 8 notes, 7 connections (3 shown by indenting, 3 by step order, 1 as ↺).')
     // Fan-out is nested once, not listed twice.
@@ -201,10 +204,11 @@ describe('buildMarkdown', () => {
       ].join('\n'),
     )
     // Unconnected sections are called out as independent.
-    expect(md).toContain("No arrows connect the sections, so they don't depend on each other: build them in any order")
+    expect(md).toContain("No arrows connect the sections, so the board doesn't say that one depends on another")
     // The key explains only what's used: steps, indents and loops, but no → on this board.
     expect(md).toContain('**How to read this:** Numbered notes are steps')
     expect(md).not.toContain('starting with `→`')
+    expect(md).toContain('Bulleted notes are things to build') // the top-level 'Authentication Options'
     expect(md).not.toMatch(/ +$/m) // no trailing spaces
   })
 
@@ -238,7 +242,8 @@ describe('buildMarkdown', () => {
 
   it('counts a note that became its section title', () => {
     const md = buildMarkdown('X', [note('solo', 0, 0, 'Lone idea')], { now: new Date('2026-01-01') })
-    expect(md).toContain('| 1 | [Lone idea](#1-lone-idea) | 1 | — |')
+    expect(md).toContain('| 1 | [Lone idea](#1-lone-idea) | 1 |\n')
+    expect(md).not.toContain('_Not named on the board')
     expect(md).toContain('1 section, 1 note, 0 connections.')
     expect(md).toContain('One section: work through [Lone idea](#1-lone-idea) from top to bottom.')
   })
