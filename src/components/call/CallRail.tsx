@@ -16,19 +16,14 @@ export function CallRail({ boardId, displayName }: { boardId: string; displayNam
   const inCall = call.status === 'connected'
 
   return (
-    <aside
-      data-testid="call-rail"
-      aria-label="Call"
-      className="flex w-64 shrink-0 flex-col border-l border-border bg-background"
-    >
-      <div className="flex h-10 items-center justify-between border-b border-border px-4">
-        <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.05em]">Call</h2>
-        {inCall && (
+    <section data-testid="call-rail" aria-label="Call" className="flex min-h-0 flex-1 flex-col bg-background">
+      {inCall && (
+        <div className="flex h-8 items-center border-b border-border px-4">
           <span data-testid="call-count" className="font-mono text-xs text-muted-foreground">
             {call.participants.length} in call
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {inCall ? (
@@ -88,7 +83,7 @@ export function CallRail({ boardId, displayName }: { boardId: string; displayNam
           </Button>
         )}
       </div>
-    </aside>
+    </section>
   )
 }
 

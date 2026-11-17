@@ -46,7 +46,9 @@ export interface SpecSection {
 const DEFAULT_GAP = 60
 
 const textOf = (s: BoardShape) => (typeof s.props.text === 'string' ? s.props.text.trim() : '')
-const time = (s: BoardShape) => Date.parse(s.createdAt) || 0
+/** Creation time; a shape re-added by a version restore carries its original in props. */
+const time = (s: BoardShape) =>
+  Date.parse(typeof s.props.originalCreatedAt === 'string' ? s.props.originalCreatedAt : s.createdAt) || 0
 const byTime = (a: BoardShape, b: BoardShape) => time(a) - time(b) || a.id.localeCompare(b.id)
 
 function rectGap(a: BoardShape, b: BoardShape) {

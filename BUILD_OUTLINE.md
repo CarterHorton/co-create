@@ -127,13 +127,20 @@ to `billing: 'user'` in `src/integrations.ts` — required so each person gets
 their own LiveKit identity (token minting is free).
 
 ### Phase 3 — Version history
-- [ ] `versions` collection: full snapshots with an auto-written summary
-      ("Added 2 notes, moved 1") — saved automatically after the board has
-      been idle, or on demand with your own message
-- [ ] History panel: list versions, preview any version read-only, export it,
-      restore it (shapes keep their ids, so arrows survive)
-- [ ] Guest boards keep their history in `localStorage`
-- **Done when:** you can replay how a board evolved during a call.
+- [x] `versions` collection: full snapshots with an auto-written summary
+      ("Added 2 notes, moved 1") — saved automatically 10 s after the last
+      edit (only by clients that edited), or on demand with your own message
+- [x] History panel: list versions, preview any version read-only, export it,
+      restore it (shapes keep their ids, so arrows survive; unsaved changes
+      are saved first, and the restore is itself a version)
+- [x] Guest boards keep their history in `localStorage` (last 50 versions)
+- [x] **Done when:** you can replay how a board evolved during a call —
+      verified by `tests/history.spec.ts` (guest board and two users).
+
+Code: `src/history/` (`diff.ts` pure + tested, `stores.ts`, `useVersioning.ts`,
+`HistoryPanel.tsx`), `src/schemas/versions-schema.ts`. Sidebar tabs (Call /
+History) in `src/components/board/BoardSidebar.tsx` keep the call connected
+while you browse history.
 
 ### Phase 4 — Sections overlay
 - [x] Pure grouping by proximity (`clusterByProximity`) with unit tests

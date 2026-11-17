@@ -35,6 +35,8 @@ Early scaffold. What exists today:
   indicator.
 - Arrow styles (straight / elbow / curve) with a drag handle to reshape them.
 - **Export .md** on every board: preview, copy, download.
+- Version history: auto-saved versions with a summary of what changed,
+  manual saves with a message, preview, export, and restore any version.
 - Guest mode at `/try`: try the whiteboard without an account; everything is
   saved only in your browser and there are no calls.
 

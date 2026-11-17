@@ -107,15 +107,15 @@ export function useLocalBoard(): BoardStore & {
         commit(null, (prev) => [
           ...prev,
           {
-            id: newId(),
+            id: shape.id ?? newId(),
             type: shape.type ?? 'box',
             x: shape.x ?? 0,
             y: shape.y ?? 0,
             width: shape.width ?? 0,
             height: shape.height ?? 0,
             props: shape.props ?? {},
-            createdBy: 'guest',
-            createdAt: now,
+            createdBy: shape.createdBy ?? 'guest',
+            createdAt: shape.createdAt ?? now,
             updatedAt: now,
           },
         ])

@@ -4,10 +4,15 @@
  */
 
 import { Link, useParams } from 'react-router-dom'
-import { useQuery, useUser } from 'deepspace'
+import { usePresenceRoom, useQuery, useUser } from 'deepspace'
 import { ArrowLeft } from 'lucide-react'
-import { CloudWhiteboard } from '@/components/board/CloudWhiteboard'
+import { Whiteboard } from '@/components/board/Whiteboard'
+import { BoardSidebar } from '@/components/board/BoardSidebar'
+import { useBoard } from '@/components/board/useBoard'
 import { CallRail } from '@/components/call/CallRail'
+import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
+import { useCloudHistory } from '@/history/stores'
+import { formatVersionTime, useVersioning } from '@/history/useVersioning'
 
 interface Board {
   title: string
@@ -44,12 +49,48 @@ export default function BoardPage() {
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
       </header>
-      <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
-          <CloudWhiteboard key={board.recordId} boardId={board.recordId} title={board.data.title} />
+      <BoardWorkspace
+        key={board.recordId}
+        boardId={board.recordId}
+        title={board.data.title}
+        userName={user?.name || user?.email || 'Someone'}
+      />
+    </div>
+  )
+}
+
+/** Board + call + history for one board (keyed by board, so state resets per board). */
+function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: string; userName: string }) {
+  const store = useBoard(boardId)
+  const presence = usePresenceRoom(`board:${boardId}`)
+  const history = useCloudHistory(boardId)
+  const v = useVersioning({ store, history, authorName: userName })
+  const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <PreviewBanner v={v} canWrite={store.canWrite} />
+        <div className="relative min-h-0 flex-1">
+          <Whiteboard
+            store={v.viewStore}
+            title={exportTitle}
+            presence={presence}
+            statusLabel={v.preview ? 'Viewing past version' : undefined}
+          />
         </div>
-        <CallRail key={board.recordId} boardId={board.recordId} displayName={user?.name || user?.email || undefined} />
       </div>
+      <BoardSidebar
+        panes={[
+          { id: 'call', label: 'Call', content: <CallRail boardId={boardId} displayName={userName} /> },
+          {
+            id: 'history',
+            label: 'History',
+            badge: v.unsaved ? <span aria-label="unsaved changes" className="size-1.5 bg-royal/50" /> : null,
+            content: <HistoryPanel v={v} canWrite={store.canWrite} />,
+          },
+        ]}
+      />
     </div>
   )
 }
