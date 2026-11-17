@@ -1,8 +1,9 @@
 /**
  * Whiteboard — the collaborative canvas for one board.
  *
- * Shapes sync through DeepSpace's CanvasRoom (useBoard → useCanvas); live
- * cursors go through a PresenceRoom scoped to the board. Everything is plain
+ * Storage-agnostic: it renders and edits whatever BoardStore it's given —
+ * the synced CanvasRoom (CloudWhiteboard) or this browser's localStorage
+ * (guest mode). Live cursors appear when a `presence` is passed. Everything is plain
  * DOM inside one transformed "world" layer; arrows are an SVG layer in the
  * same coordinate space.
  *
@@ -12,10 +13,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { getUserColor, usePresenceRoom } from 'deepspace'
+import { getUserColor } from 'deepspace'
 import {
   ArrowUpRight,
+  CornerDownRight,
+  FileDown,
   Minus,
+  Slash,
+  Spline,
   MousePointer2,
   Plus,
   Redo2,
@@ -26,12 +31,16 @@ import {
   Undo2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useBoard, type BoardShape, type ShapeKind } from './useBoard'
+import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
+import { ExportDialog } from './ExportDialog'
 import {
+  ARROW_ROUTES,
   DEFAULT_SIZE,
   MIN_SIZE,
   STICKY_COLORS,
-  arrowEnds,
+  arrowBend,
+  arrowGeometry,
+  arrowRoute,
   shapeText,
   stickyColor,
   type StickyColor,
@@ -47,6 +56,7 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; cam: Camera }
   | { kind: 'move'; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean }
   | { kind: 'resize'; id: string; sx: number; sy: number; ow: number; oh: number }
+  | { kind: 'bend'; id: string; sx: number; sy: number; ox: number; oy: number; axis: 'x' | 'y' | 'xy' }
 /** What is being text-edited: an existing shape, or one we just asked the server to create. */
 type Editing = { id: string } | { pending: { type: ShapeKind; x: number; y: number } } | null
 
@@ -58,14 +68,27 @@ const TOOLS: { id: Tool; label: string; key: string; Icon: typeof Square }[] = [
   { id: 'arrow', label: 'Arrow — click two shapes', key: 'a', Icon: ArrowUpRight },
 ]
 
+const ROUTE_ICONS: Record<ArrowRoute, typeof Square> = { straight: Slash, elbow: CornerDownRight, curve: Spline }
+
 const MIN_ZOOM = 0.2
 const MAX_ZOOM = 3
 
-export function Whiteboard({ boardId }: { boardId: string }) {
-  const board = useBoard(boardId)
-  const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = board
-  const presence = usePresenceRoom(`board:${boardId}`)
-  const { updateState } = presence
+interface WhiteboardProps {
+  store: BoardStore
+  /** Board title, used for the exported Markdown. */
+  title: string
+  /** Live cursors + avatars; omit for single-user (guest) boards. */
+  presence?: BoardPresence
+  /** Status badge text when connected, e.g. "Live" or "Saved in this browser". */
+  statusLabel?: string
+}
+
+const NO_PEERS: BoardPresence['peers'] = []
+
+export function Whiteboard({ store, title, presence, statusLabel }: WhiteboardProps) {
+  const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = store
+  const peers = presence?.peers ?? NO_PEERS
+  const updateState = presence?.updateState
 
   const [tool, setTool] = useState<Tool>('select')
   const [color, setColor] = useState<StickyColor>('white')
@@ -74,6 +97,8 @@ export function Whiteboard({ boardId }: { boardId: string }) {
   const [editing, setEditing] = useState<Editing>(null)
   const [arrowFrom, setArrowFrom] = useState<string | null>(null)
   const [panning, setPanning] = useState(false)
+  const [route, setRoute] = useState<ArrowRoute>('straight')
+  const [exportOpen, setExportOpen] = useState(false)
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
@@ -146,12 +171,12 @@ export function Whiteboard({ boardId }: { boardId: string }) {
     (id: string) => {
       if (!arrowFrom) return setArrowFrom(id)
       if (arrowFrom !== id) {
-        addShape({ type: 'arrow', x: 0, y: 0, width: 0, height: 0, props: { from: arrowFrom, to: id } })
+        addShape({ type: 'arrow', x: 0, y: 0, width: 0, height: 0, props: { from: arrowFrom, to: id, route } })
       }
       setArrowFrom(null)
       setTool('select')
     },
-    [arrowFrom, addShape],
+    [arrowFrom, addShape, route],
   )
 
   // ── Pointer handling ───────────────────────────────────────────────────
@@ -192,6 +217,14 @@ export function Whiteboard({ boardId }: { boardId: string }) {
     viewportRef.current?.setPointerCapture(e.pointerId)
   }
 
+  function onBendPointerDown(e: ReactPointerEvent, a: BoardShape, from: BoardShape, to: BoardShape, axis: 'x' | 'y' | 'xy') {
+    e.stopPropagation()
+    if (!canWrite) return
+    const b = arrowBend(a, from, to)
+    drag.current = { kind: 'bend', id: a.id, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, axis }
+    viewportRef.current?.setPointerCapture(e.pointerId)
+  }
+
   function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     broadcastCursor(e.clientX, e.clientY)
     const d = drag.current
@@ -204,6 +237,13 @@ export function Whiteboard({ boardId }: { boardId: string }) {
       if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return
       d.moved = true
       move(d.id, Math.round(d.ox + dx / cam.zoom), Math.round(d.oy + dy / cam.zoom))
+    } else if (d.kind === 'bend') {
+      update(d.id, {
+        bend: {
+          x: d.axis === 'y' ? d.ox : Math.round(d.ox + dx / cam.zoom),
+          y: d.axis === 'x' ? d.oy : Math.round(d.oy + dy / cam.zoom),
+        },
+      })
     } else {
       resize(
         d.id,
@@ -231,7 +271,7 @@ export function Whiteboard({ boardId }: { boardId: string }) {
     if (cursorFrame.current !== null) return
     cursorFrame.current = requestAnimationFrame(() => {
       cursorFrame.current = null
-      if (pendingCursor.current) updateState({ cursor: pendingCursor.current })
+      if (pendingCursor.current) updateState?.({ cursor: pendingCursor.current })
     })
   }
 
@@ -333,6 +373,34 @@ export function Whiteboard({ boardId }: { boardId: string }) {
             <Icon className="size-4" />
           </button>
         ))}
+        <div className="flex items-center border-r border-border" role="group" aria-label="Arrow style">
+          {ARROW_ROUTES.map(({ id, label }) => {
+            const Icon = ROUTE_ICONS[id]
+            const current = active?.type === 'arrow' ? arrowRoute(active) : route
+            return (
+              <button
+                key={id}
+                type="button"
+                data-testid={`route-${id}`}
+                title={`${label} arrow`}
+                aria-label={`${label} arrow`}
+                aria-pressed={current === id}
+                disabled={!canWrite}
+                onClick={() => {
+                  setRoute(id)
+                  // Switching style resets the bend to that style's default.
+                  if (active?.type === 'arrow') update(active.id, { route: id, bend: null })
+                }}
+                className={cn(
+                  'flex h-10 w-8 items-center justify-center transition-colors disabled:opacity-30',
+                  current === id ? 'bg-royal/30' : 'hover:bg-royal/20',
+                )}
+              >
+                <Icon className="size-4" />
+              </button>
+            )
+          })}
+        </div>
         <div className="flex items-center gap-1 border-r border-border px-2" aria-label="Sticky color">
           {(Object.keys(STICKY_COLORS) as StickyColor[]).map((c) => {
             const current = active?.type === 'sticky' ? stickyColor(active) : color
@@ -382,7 +450,7 @@ export function Whiteboard({ boardId }: { boardId: string }) {
       {/* Status + presence */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-3">
         <div className="flex -space-x-1">
-          {presence.peers.map((p) => (
+          {peers.map((p) => (
             <span
               key={p.userId}
               title={p.userName}
@@ -393,12 +461,20 @@ export function Whiteboard({ boardId }: { boardId: string }) {
             </span>
           ))}
         </div>
+        <button
+          type="button"
+          data-testid="export-md"
+          onClick={() => setExportOpen(true)}
+          className="flex items-center gap-1.5 border border-foreground bg-background px-2.5 py-1 text-xs font-bold uppercase tracking-[0.05em] shadow-[2px_2px_0_0_#000] hover:bg-royal/20"
+        >
+          <FileDown className="size-3.5" /> Export .md
+        </button>
         <span
           data-testid="board-connection"
           className="flex items-center gap-1.5 border border-border bg-background px-2 py-1 font-mono text-xs text-muted-foreground"
         >
           <span className={cn('size-1.5', connected ? 'bg-success' : 'animate-pulse bg-warning')} />
-          {connected ? (canWrite ? 'Live' : 'Live · view only') : 'Connecting…'}
+          {connected ? (canWrite ? (statusLabel ?? 'Live') : 'Live · view only') : 'Connecting…'}
         </span>
       </div>
 
@@ -443,7 +519,7 @@ export function Whiteboard({ boardId }: { boardId: string }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => updateState({ cursor: null })}
+        onPointerLeave={() => updateState?.({ cursor: null })}
         onDoubleClick={onDoubleClick}
       >
         <div
@@ -464,21 +540,35 @@ export function Whiteboard({ boardId }: { boardId: string }) {
               const from = byId.get(String(a.props.from))
               const to = byId.get(String(a.props.to))
               if (!from || !to) return null
-              const { x1, y1, x2, y2 } = arrowEnds(from, to)
+              const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to))
               const isActive = a.id === activeId
+              const hs = 10 / cam.zoom
               return (
-                <g key={a.id} data-testid="board-arrow">
-                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={14} className="cursor-pointer" onPointerDown={(e) => onShapePointerDown(e, a)} />
-                  <line
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
+                <g key={a.id} data-testid="board-arrow" data-route={arrowRoute(a)}>
+                  <path d={geo.d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" onPointerDown={(e) => onShapePointerDown(e, a)} />
+                  <path
+                    d={geo.d}
+                    fill="none"
                     stroke={isActive ? 'rgba(65,105,225,0.5)' : '#000'}
                     strokeWidth={2}
+                    strokeLinejoin="miter"
                     markerEnd={`url(#${isActive ? 'arrowhead-active' : 'arrowhead'})`}
                     pointerEvents="none"
                   />
+                  {isActive && canWrite && geo.handle && geo.axis && (
+                    <rect
+                      data-testid="arrow-bend-handle"
+                      x={geo.handle.x - hs / 2}
+                      y={geo.handle.y - hs / 2}
+                      width={hs}
+                      height={hs}
+                      fill="#fff"
+                      stroke="#000"
+                      strokeWidth={1.5 / cam.zoom}
+                      className={geo.axis === 'x' ? 'cursor-ew-resize' : geo.axis === 'y' ? 'cursor-ns-resize' : 'cursor-move'}
+                      onPointerDown={(e) => onBendPointerDown(e, a, from, to, geo.axis!)}
+                    />
+                  )}
                 </g>
               )
             })}
@@ -505,7 +595,7 @@ export function Whiteboard({ boardId }: { boardId: string }) {
           ))}
 
           {/* Other people's cursors */}
-          {presence.peers.map((p) => {
+          {peers.map((p) => {
             const c = p.state.cursor as { x: number; y: number } | null | undefined
             if (!c) return null
             const col = getUserColor(p.userId)
@@ -525,6 +615,8 @@ export function Whiteboard({ boardId }: { boardId: string }) {
           })}
         </div>
       </div>
+
+      {exportOpen && <ExportDialog title={title} shapes={shapes} onClose={() => setExportOpen(false)} />}
     </div>
   )
 

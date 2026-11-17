@@ -3,12 +3,14 @@
 ## Concept in one line
 
 A group call with a shared whiteboard, whose every change is versioned like
-Git, and whose contents are clustered by **canvas proximity + time** into a
-Markdown spec that AI agents can implement.
+Git, and whose contents are grouped by **canvas proximity, arrows and time**
+into a Markdown spec that AI agents can implement. The app itself uses **no
+AI**: the spec is built deterministically from the board.
 
 ```
- Call + whiteboard ──▶ Change history ──▶ Clustering ──▶ spec.md
- (LiveKit + canvas)    (commit log)       (space+time)   (AI-written, human-reviewed)
+ Call + whiteboard ──▶ Version history ──▶ Sections ──▶ spec.md
+ (LiveKit + canvas)    (saved snapshots)    (proximity,   (rule-based, same
+                                             arrows, time)  board → same file)
 ```
 
 "Location" always means **x/y position on the canvas**. There is no GPS /
@@ -25,7 +27,8 @@ geolocation anywhere in this product.
 | Live cursors / viewports | `viewports` from `useCanvas`, presence hooks                                         |
 | Audio/video call         | `integration.post('livekit/generate-token', { roomName })` + `livekit-client`        |
 | Persistent data          | Collections in `src/schemas/` (RecordRoom, RBAC)                                     |
-| AI calls                 | `src/ai/*` routes (Claude via the platform), background jobs for long runs           |
+| Agent access to specs    | Built-in record tools (`records.query`) over HTTP/MCP — see `src/ai/tools.ts`        |
+| Guest boards             | Nothing from DeepSpace: `localStorage` in the browser (`useLocalBoard`)              |
 
 Backend: `AppCanvasRoom` is already bound in `worker.ts` / `wrangler.toml`.
 
@@ -34,84 +37,65 @@ Backend: `AppCanvasRoom` is already bound in `worker.ts` / `wrangler.toml`.
 ## Data model
 
 ```ts
-// Canvas shape (provided by DeepSpace; we define `type` + `props`)
-type ShapeType = 'sticky' | 'box' | 'text' | 'arrow' | 'frame'
+// Canvas shape (DeepSpace CanvasShapeClient; we define `type` + `props`)
+type ShapeType = 'sticky' | 'box' | 'text' | 'arrow'
 props: {
   text?: string
-  color?: string
-  from?: string; to?: string   // arrows: shape ids they connect
+  color?: 'white' | 'gray' | 'blue' | 'black'      // stickies
+  from?: string; to?: string                         // arrows: shape ids
+  route?: 'straight' | 'elbow' | 'curve'             // arrows
+  bend?: { x: number; y: number }                    // arrows: handle offset
+  originalCreatedAt?: string                         // set when a version restore re-adds a shape
 }
 
-// boards collection — one per whiteboard / call
-interface Board {
-  id: string
-  title: string
-  canvasId: string        // passed to useCanvas
-  callRoom: string        // LiveKit room name
-  createdBy: string
-  headCommitId?: string
-}
+// boards — one per whiteboard (shapes live in the CanvasRoom keyed by its id)
+interface Board { title: string; ownerId: string }
 
-// commits collection — the Git-style history
-interface Commit {
-  id: string
+// versions — the Git-style history: full snapshots (boards are small)
+interface Version {
   boardId: string
-  parentId?: string       // linear history first; branches later
-  authorId: string
-  createdAt: string
-  message: string         // auto ("Added 3 notes near 'Auth'") or user-written
-  ops: ShapeOp[]          // diff vs parent: add / update / move / delete
-  snapshot?: CanvasShape[]// full state every N commits for fast checkout
+  message: string          // auto: "Added 3 notes, moved 2" — or typed by the user
+  authorName: string
+  snapshot: CanvasShape[]  // JSON column
+  shapeCount: number
 }
 
-// specs collection — generated exports
-interface Spec {
-  id: string
-  boardId: string
-  commitId: string        // exact board state the spec was built from
-  markdown: string
-  clusters: Cluster[]     // kept so the UI can highlight groups on the board
-}
+// specs — Markdown published for agents
+interface Spec { boardId: string; title: string; markdown: string }
 ```
+
+Guest boards keep the same shapes and versions in `localStorage` instead.
 
 ### Why not real Git?
 
 Running `isomorphic-git` in the browser is possible, but a canvas isn't text
 files, merges of x/y positions are meaningless to Git, and we'd still need
-storage for the repo. A commit log of shape diffs in a collection gives the same
-user-facing features (history, diff, restore, branch) with far less machinery.
+storage for the repo. A log of board snapshots in a collection gives the same
+user-facing features (history, diff, restore) with far less machinery.
 Revisit only if users want to push a board into an actual repo.
 
 ---
 
-## How a spec is produced
+## How a spec is produced (no AI)
 
-1. **Pick a commit** (default: HEAD at the end of the call).
-2. **Cluster shapes** — deterministic, runs in the browser or a worker:
-   - Spatial: single-linkage / DBSCAN on shape centers (ε ≈ 1.5× median shape
-     size). Shapes inside a `frame` are always one cluster.
-   - Temporal: split a spatial cluster when `createdAt` gaps exceed a threshold
-     (e.g. 5 min) — same place, different conversation.
-   - Edges: arrows connect clusters into a dependency graph.
-3. **Order sections** by each cluster's earliest `createdAt` (the order the
-   group discussed them), then by graph dependencies.
-4. **Ask Claude to write the spec** from structured input (clusters, texts,
-   edges, authors, timestamps, optionally the call transcript later). Fixed
-   output template:
+Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
 
-   ```md
-   # <Board title>
-   ## Context
-   ## Goals
-   ## <Cluster title>
-   - Requirements …
-   - Open questions …
-   ## Tasks (ordered, with dependencies)
-   ## Source
-   board <id> @ commit <id>, generated <date>
-   ```
+1. **Sections.** Notes whose edges are within 60 px of each other are chained
+   into one section (so a row of stickies is one group). Overlap counts, so
+   drawing a box around notes groups them. Empty notes are ignored.
+2. **Titles.** A section is titled by its text label, else its box, else the
+   first line of its earliest note.
+3. **Order.** Arrows between sections order the sections; arrows inside a
+   section order its notes. Ties and arrow cycles fall back to creation time.
+4. **Connections.** Every arrow is written under the note it starts from,
+   linking across sections by anchor (`→ [2. Billing](#2-billing): Charge card`).
+5. **Output.** Title, an overview table (sections, note counts, what each
+   comes after), one `##` section per group, and a "Suggested order of work"
+   checklist. Same board in → same file out.
 
-5. **Human review → download / copy / expose via agent tool** (`specs.get`).
+Users steer the result by arranging the board: move notes together or apart,
+draw a box around notes to force a group, add a text label to name it, draw
+arrows to set order. The **Show sections** overlay previews the grouping.
 
 ---
 
@@ -143,23 +127,34 @@ to `billing: 'user'` in `src/integrations.ts` — required so each person gets
 their own LiveKit identity (token minting is free).
 
 ### Phase 3 — Version history
-- [ ] `commits` schema; auto-commit after N seconds of quiet or on demand
-- [ ] History timeline: scrub to preview old states, diff highlight, restore
-- [ ] (Later) branch from a commit to try an alternative layout
+- [ ] `versions` collection: full snapshots with an auto-written summary
+      ("Added 2 notes, moved 1") — saved automatically after the board has
+      been idle, or on demand with your own message
+- [ ] History panel: list versions, preview any version read-only, export it,
+      restore it (shapes keep their ids, so arrows survive)
+- [ ] Guest boards keep their history in `localStorage`
 - **Done when:** you can replay how a board evolved during a call.
 
-### Phase 4 — Clustering
-- [ ] Pure function `clusterShapes(shapes, opts) → Cluster[]` with unit tests
-- [ ] Overlay that outlines detected clusters on the board; let users merge /
-      split / rename clusters before export
-- **Done when:** clusters match what a person would draw circles around.
+### Phase 4 — Sections overlay
+- [x] Pure grouping by proximity (`clusterByProximity`) with unit tests
+- [ ] **Show sections** toggle outlines each group on the board with its
+      number and title, exactly as the export will use them
+- **Done when:** sections match what a person would draw circles around.
 
-### Phase 5 — Spec export
-- [ ] Server route that sends clusters to Claude and stores a `Spec`
-- [ ] Preview + edit + download `.md`; copy-to-clipboard
-- [ ] Expose `specs` through the app's agent tools so Claude Code can pull a
-      spec directly (`npx deepspace agent invoke …`)
+### Phase 5 — Spec export (no AI)
+- [x] Rule-based Markdown builder (`src/spec/buildSpec.ts`) + tests
+- [x] Export dialog: preview, copy, download `<board>.md` (cloud and guest)
+- [ ] Publish a spec to the `specs` collection so agents can fetch it with the
+      app's record tools (`npx deepspace agent invoke …`)
 - **Done when:** a board turns into a spec an agent can act on unmodified.
+
+### Extras built along the way
+- [x] **Guest mode** (`/try`): one board saved only in this browser, no
+      account, no calls, Markdown export works. Linked from every sign-in
+      prompt and the landing page. Verified by `tests/try.spec.ts`.
+- [x] **Arrow styles**: straight, elbow, curve. Select an arrow to switch its
+      style or drag its handle to reshape it (curve passes through the
+      handle; elbow handle slides the middle segment).
 
 ### Later
 - Call transcription feeding the spec (what was *said* near each cluster)
@@ -170,7 +165,8 @@ their own LiveKit identity (token minting is free).
 
 ## Decisions to make
 
-1. **Commit cadence:** auto-commit on idle (recommended) vs. explicit commit only.
+1. **Version cadence** — built as the recommended default (auto-save on idle, plus
+   manual saves). Easy to change if you'd rather save only by hand.
 2. ~~**Call UI**~~ — decided: audio-first rail; video is opt-in per person.
 3. **Board access:** anyone with the link vs. invited members only.
-4. **Who pays for AI/LiveKit:** app owner credits (default) vs. per-user.
+4. ~~**AI cost**~~ — no AI in the app. LiveKit token minting is free.

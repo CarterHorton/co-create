@@ -6,7 +6,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useUser } from 'deepspace'
 import { ArrowLeft } from 'lucide-react'
-import { Whiteboard } from '@/components/board/Whiteboard'
+import { CloudWhiteboard } from '@/components/board/CloudWhiteboard'
 import { CallRail } from '@/components/call/CallRail'
 
 interface Board {
@@ -46,7 +46,7 @@ export default function BoardPage() {
       </header>
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
-          <Whiteboard key={board.recordId} boardId={board.recordId} />
+          <CloudWhiteboard key={board.recordId} boardId={board.recordId} title={board.data.title} />
         </div>
         <CallRail key={board.recordId} boardId={board.recordId} displayName={user?.name || user?.email || undefined} />
       </div>

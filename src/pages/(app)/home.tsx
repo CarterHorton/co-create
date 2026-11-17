@@ -30,7 +30,15 @@ function SignedOut() {
       <p className="text-base text-muted-foreground">
         Sign in to create a whiteboard and invite your team onto it.
       </p>
-      <Button onClick={() => setOpen(true)}>Sign in</Button>
+      <div className="flex flex-wrap items-center gap-4">
+        <Button onClick={() => setOpen(true)}>Sign in</Button>
+        <Link to="/try" data-testid="try-link" className="text-sm font-bold underline underline-offset-4 hover:text-royal">
+          Try it without an account
+        </Link>
+      </div>
+      <p className="font-mono text-xs text-muted-foreground">
+        Guest boards stay in this browser only — no saving to the cloud, no calls, but Markdown export works.
+      </p>
       {open && <AuthOverlay onClose={() => setOpen(false)} />}
     </div>
   )

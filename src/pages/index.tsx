@@ -52,6 +52,13 @@ export default function Landing() {
         >
           Start Creating
         </Link>
+
+        <Link
+          to="/try"
+          className="mt-5 text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+        >
+          or try it without an account
+        </Link>
       </div>
     </>
   )

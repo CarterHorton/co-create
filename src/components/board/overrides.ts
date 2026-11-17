@@ -4,8 +4,7 @@
  */
 
 import type { CanvasShapeClient } from 'deepspace'
-
-export type BoardShape = CanvasShapeClient
+import type { BoardShape } from './types'
 type Pair = [number, number]
 interface Field<T> {
   value: T

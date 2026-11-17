@@ -15,10 +15,10 @@
    always part of the same thought. Co-Create clusters them by **spatial
    proximity** (where they sit on the canvas) and **temporal proximity** (when
    they were created / edited), and uses arrows as explicit relationships.
-4. **Export an AI-ready `.md` file.** Each cluster becomes a section of a spec
-   (goal, requirements, open questions, tasks), ordered by when the group worked
-   on it, with the history available as context. Hand the file to Claude Code,
-   Cursor, or any other agent.
+4. **Export an AI-ready `.md` file — built without AI.** Each group of nearby
+   notes becomes a section; arrows set the order of sections and of notes, and
+   creation time breaks ties. Same board in, same file out. Hand the file to
+   Claude Code, Cursor, or any other agent.
 
 > "Location" in this project always means **position on the canvas**, not the
 > participants' physical/GPS location.
@@ -33,6 +33,10 @@ Early scaffold. What exists today:
   stickies, boxes, text, arrows, pan/zoom, live cursors.
 - Group call beside each board (LiveKit): join/leave, mute, camera, speaking
   indicator.
+- Arrow styles (straight / elbow / curve) with a drag handle to reshape them.
+- **Export .md** on every board: preview, copy, download.
+- Guest mode at `/try`: try the whiteboard without an account; everything is
+  saved only in your browser and there are no calls.
 
 See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 [DESIGN.md](./DESIGN.md) for the visual design system.
@@ -46,7 +50,8 @@ See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
 | Who's here / cursors | DeepSpace presence (`useCanvas` viewports, presence hooks)         |
 | Group audio/video    | LiveKit via DeepSpace's `livekit/*` integration + `livekit-client` |
 | Version history      | A `commits` collection of canvas diffs/snapshots (Git-style log)   |
-| Spec generation      | Deterministic clustering + Claude via DeepSpace AI routes          |
+| Spec generation      | Rule-based, in the browser: `src/spec/buildSpec.ts` (no AI)        |
+| Guest boards         | `localStorage` only (`/try`): no account, no calls                 |
 | UI                   | React 19, Tailwind v4, Base UI primitives in `src/components/ui`   |
 
 ## Getting started

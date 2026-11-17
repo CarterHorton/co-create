@@ -13,10 +13,9 @@ import { useCallback, useMemo, useState } from 'react'
 import { useCanvas, type CanvasShapeClient } from 'deepspace'
 import { applyOverrides, nextField, samePair, type Override } from './overrides'
 
-export type ShapeKind = 'sticky' | 'box' | 'text' | 'arrow'
-export type { BoardShape } from './overrides'
+import type { BoardStore } from './types'
 
-export function useBoard(boardId: string) {
+export function useBoard(boardId: string): BoardStore {
   const canvas = useCanvas(boardId)
   const [overrides, setOverrides] = useState<Record<string, Override>>({})
 
@@ -61,5 +60,16 @@ export function useBoard(boardId: string) {
     [edit, updateShape],
   )
 
-  return { ...canvas, shapes, move, resize, update }
+  return {
+    shapes,
+    connected: canvas.connected,
+    canWrite: canvas.canWrite,
+    addShape: canvas.addShape,
+    deleteShape: canvas.deleteShape,
+    undo: canvas.undo,
+    redo: canvas.redo,
+    move,
+    resize,
+    update,
+  }
 }
