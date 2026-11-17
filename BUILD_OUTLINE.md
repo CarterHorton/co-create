@@ -46,6 +46,7 @@ props: {
   route?: 'straight' | 'elbow' | 'curve'             // arrows
   bend?: { x: number; y: number }                    // arrows: handle offset
   section?: string                                   // named section, set from the selection bar
+  subsection?: string                                // a part of that section (Front-end › Login page)
   originalCreatedAt?: string                         // set when a version restore re-adds a shape
 }
 
@@ -83,6 +84,7 @@ Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
 
 1. **Sections.** Notes you assigned to a named section (select them → type a
    name in the bottom bar → Assign) form that section wherever they are.
+   Notes also given a subsection form a `###` part of that section.
    Every other note is grouped by proximity: edges within 60 px are chained
    into one section (so a row of stickies is one group). Overlap counts, so
    drawing a box around notes groups them. Empty notes are ignored.
@@ -168,6 +170,11 @@ while you browse history.
       section such as "Authentication" from the selection bar; they become
       one section wherever they are, tagged on the board. Ungroup returns
       them to proximity grouping.
+- [x] Subsections: give a named section parts (Front-end › Login page,
+      Dashboard) with the selection bar's second field. The overlay outlines
+      each part inside its section; the export writes each as a `###`
+      heading (ordered by arrows between parts, then time), after the notes
+      that apply to the whole section. Verified by `tests/subsections.spec.ts`.
 - [x] Or steer by layout: move notes together or apart, draw a box around
       notes to force a group, add a text label to name it
 - [x] **Done when:** sections match what a person would draw circles around —

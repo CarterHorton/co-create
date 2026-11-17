@@ -39,7 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
-import { buildSections, clusterByProximity, sectionNameOf } from '@/spec/buildSpec'
+import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import {
@@ -148,18 +148,24 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const active = activeId ? byId.get(activeId) : undefined
   const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
   const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
+  /** Section names on the board → the subsection names used in each (first spelling wins). */
   const sectionNames = useMemo(() => {
-    const seen = new Map<string, string>()
+    const seen = new Map<string, { name: string; subs: Map<string, string> }>()
     for (const s of shapes) {
       const n = sectionNameOf(s)
-      if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n)
+      if (!n) continue
+      if (!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), { name: n, subs: new Map() })
+      const sub = subsectionNameOf(s)
+      const subs = seen.get(n.toLowerCase())!.subs
+      if (sub && !subs.has(sub.toLowerCase())) subs.set(sub.toLowerCase(), sub)
     }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+    const sort = (xs: string[]) => xs.sort((a, b) => a.localeCompare(b))
+    return new Map([...seen.values()].map((v) => [v.name, sort([...v.subs.values()])]))
   }, [shapes])
   const selectedNotes = selectedShapes.filter((x) => x.type !== 'arrow')
-  const assignSection = (name: string | null) =>
+  const assignSection = (name: string | null, subsection: string | null = null) =>
     batch(() => {
-      for (const x of selectedNotes) update(x.id, { section: name })
+      for (const x of selectedNotes) update(x.id, { section: name, subsection: name ? subsection : null })
     })
 
   const toWorld = useCallback(
@@ -671,7 +677,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           key={selectedNotes.map((x) => x.id).join(',')}
           shapes={selectedNotes}
           sectionNames={sectionNames}
-          onAssign={(name) => assignSection(name)}
+          onAssign={(name, sub) => assignSection(name, sub)}
           onUngroup={() => assignSection(null)}
           onDelete={() => removeMany(selectedSet)}
         />
@@ -975,6 +981,7 @@ function ShapeView({
           className="pointer-events-none absolute bottom-full left-0 mb-1.5 max-w-full truncate border border-royal/50 bg-background px-1 font-mono text-[10px] leading-4 text-foreground"
         >
           {sectionNameOf(s)}
+          {subsectionNameOf(s) && ` › ${subsectionNameOf(s)}`}
         </span>
       )}
       {showHandles && canWrite && !editing && (
@@ -1100,14 +1107,43 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
           )
         })
       })}
+      {sections.flatMap((sec) =>
+        sec.subsections.flatMap((sub) => {
+          const members = [...sub.ids].map((id) => byId.get(id)).filter((s): s is BoardShape => !!s)
+          return clusterByProximity(members, 200).map((clump, i) => {
+            const subPad = pad / 2
+            const x = Math.min(...clump.map((s) => s.x)) - subPad
+            const y = Math.min(...clump.map((s) => s.y)) - subPad
+            const w = Math.max(...clump.map((s) => s.x + s.width)) - x + subPad
+            const h = Math.max(...clump.map((s) => s.y + s.height)) - y + subPad
+            return (
+              <div
+                key={`${sec.anchor}/${sub.anchor}:${i}`}
+                data-testid="subsection-outline"
+                data-subsection={sub.title}
+                className="pointer-events-none absolute border border-dashed border-foreground/60"
+                style={{ left: x, top: y, width: w, height: h }}
+              >
+                <span
+                  className="absolute right-0 origin-bottom-right whitespace-nowrap border border-foreground bg-background px-1 py-px font-mono text-[11px] font-semibold"
+                  style={{ bottom: '100%', transform: `scale(${1 / zoom})` }}
+                >
+                  {sec.index}.{sub.index} {sub.title}
+                </span>
+              </div>
+            )
+          })
+        }),
+      )}
     </>
   )
 }
 
 /**
- * Floating bar for the current selection: name a section and assign the
- * selected shapes to it (they become one section in the export, wherever
- * they sit), remove them from their section, or delete them.
+ * Floating bar for the current selection: name a section (and optionally a
+ * subsection within it, e.g. Front-end › Login page) and assign the selected
+ * shapes to it (they become one section in the export, wherever they sit),
+ * remove them from their section, or delete them.
  */
 function SelectionBar({
   shapes,
@@ -1117,28 +1153,33 @@ function SelectionBar({
   onDelete,
 }: {
   shapes: BoardShape[]
-  sectionNames: string[]
-  onAssign: (name: string) => void
+  /** Section name → subsection names already used in it. */
+  sectionNames: Map<string, string[]>
+  onAssign: (name: string, subsection: string | null) => void
   onUngroup: () => void
   onDelete: () => void
 }) {
   const current = new Set(shapes.map(sectionNameOf))
+  const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
+  const [sub, setSub] = useState(current.size === 1 && currentSub.size === 1 ? [...currentSub][0] : '')
   const anyAssigned = shapes.some((x) => sectionNameOf(x))
+  const subNames = [...sectionNames].find(([n]) => n.toLowerCase() === name.trim().toLowerCase())?.[1] ?? []
   const assign = () => {
-    if (name.trim()) onAssign(name.trim())
+    if (name.trim()) onAssign(name.trim(), sub.trim() || null)
   }
+  const field = 'h-8 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50'
   return (
     <div
       data-testid="selection-bar"
-      className="absolute bottom-4 left-4 z-20 flex items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      className="absolute bottom-4 left-4 z-20 flex max-w-[calc(100%-13rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
         {shapes.length} selected
       </span>
       <form
-        className="flex items-center gap-1"
+        className="flex flex-wrap items-center gap-1"
         onSubmit={(e) => {
           e.preventDefault()
           assign()
@@ -1151,12 +1192,31 @@ function SelectionBar({
           list="board-section-names"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Section, e.g. Authentication"
+          placeholder="Section, e.g. Front-end"
           maxLength={80}
-          className="h-8 w-52 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50"
+          className={cn(field, 'w-40')}
         />
         <datalist id="board-section-names">
-          {sectionNames.map((n) => (
+          {[...sectionNames.keys()].map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+        <span aria-hidden className="font-mono text-xs text-muted-foreground">
+          ›
+        </span>
+        <input
+          data-testid="subsection-name-input"
+          aria-label="Subsection name (optional)"
+          list="board-subsection-names"
+          value={sub}
+          onChange={(e) => setSub(e.target.value)}
+          disabled={!name.trim()}
+          placeholder="Subsection (optional)"
+          maxLength={80}
+          className={cn(field, 'w-40 disabled:opacity-40')}
+        />
+        <datalist id="board-subsection-names">
+          {subNames.map((n) => (
             <option key={n} value={n} />
           ))}
         </datalist>

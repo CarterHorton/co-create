@@ -32,6 +32,23 @@ export interface SpecNote {
   items: string[]
 }
 
+/**
+ * A named part of a named section ("Front-end" → "Login page", "Dashboard"),
+ * set from the selection bar. Notes in it are listed under its own heading.
+ */
+export interface SpecSubsection {
+  /** 1-based within its section; arrows between subsections order them, then creation time. */
+  index: number
+  title: string
+  anchor: string
+  /** A text label repeating the subsection's name: its title, not a note. */
+  titleShape?: BoardShape
+  notes: SpecNote[]
+  /** Shape ids in this subsection (including the title shape). */
+  ids: Set<string>
+  after: SpecSubsection[]
+}
+
 export interface SpecSection {
   index: number
   title: string
@@ -40,8 +57,11 @@ export interface SpecSection {
   titleShape?: BoardShape
   /** Extra lines from a note whose first line became the title. */
   intro: string[]
+  /** Notes that belong to the section as a whole (not to one of its subsections). */
   notes: SpecNote[]
-  /** Notes in the section, counting a note whose first line became the title (not a text/box label). */
+  /** Named parts of the section, in order. Only named sections have them. */
+  subsections: SpecSubsection[]
+  /** Notes in the section and its subsections, counting a note whose first line became the title (not a text/box label). */
   noteCount: number
   /** Named by the user (selection bar) rather than grouped by proximity. */
   assigned: boolean
@@ -79,6 +99,9 @@ export const headlineOf = (s: BoardShape) => noteParts(textOf(s)).head
 
 /** Section name a user assigned to this shape, or ''. */
 export const sectionNameOf = (s: BoardShape) => (typeof s.props.section === 'string' ? s.props.section.trim() : '')
+/** Subsection name within the shape's named section, or '' (a subsection needs a section). */
+export const subsectionNameOf = (s: BoardShape) =>
+  sectionNameOf(s) && typeof s.props.subsection === 'string' ? s.props.subsection.trim() : ''
 /** Creation time; a shape re-added by a version restore carries its original in props. */
 const time = (s: BoardShape) =>
   Date.parse(typeof s.props.originalCreatedAt === 'string' ? s.props.originalCreatedAt : s.createdAt) || 0
@@ -193,11 +216,65 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
       rest = group.slice(1)
     }
     const ids = new Set(group.map((s) => s.id))
-    const inner = arrows.filter(([a, b]) => rest.includes(a) && rest.includes(b)) as [BoardShape, BoardShape][]
-    const notes = topoOrder(rest, inner, byTime).map((shape) => ({ shape, text: textOf(shape), ...noteParts(textOf(shape)) }))
-    const noteCount = notes.length + (titleFromNote ? 1 : 0)
-    return { index: 0, title, anchor: '', titleShape, intro, notes, noteCount, assigned: !!name, ids, after: [], leadsTo: [] }
+    const subsections = name ? buildSubsections(rest.filter(subsectionNameOf)) : []
+    const notes = orderNotes(name ? rest.filter((s) => !subsectionNameOf(s)) : rest)
+    const noteCount = notes.length + subsections.reduce((n, x) => n + x.notes.length, 0) + (titleFromNote ? 1 : 0)
+    return {
+      index: 0,
+      title,
+      anchor: '',
+      titleShape,
+      intro,
+      notes,
+      subsections,
+      noteCount,
+      assigned: !!name,
+      ids,
+      after: [],
+      leadsTo: [],
+    }
   })
+
+  /** Notes ordered by the arrows between them, then by creation time. */
+  function orderNotes(list: BoardShape[]): SpecNote[] {
+    const inner = arrows.filter(([a, b]) => list.includes(a) && list.includes(b)) as [BoardShape, BoardShape][]
+    return topoOrder(list, inner, byTime).map((shape) => ({ shape, text: textOf(shape), ...noteParts(textOf(shape)) }))
+  }
+
+  /** Split a named section's subsection notes by name (case-insensitive, first spelling wins) and order the parts. */
+  function buildSubsections(list: BoardShape[]): SpecSubsection[] {
+    const byName = new Map<string, { name: string; shapes: BoardShape[] }>()
+    for (const n of [...list].sort(byTime)) {
+      const name = subsectionNameOf(n)
+      const key = name.toLowerCase()
+      if (!byName.has(key)) byName.set(key, { name, shapes: [] })
+      byName.get(key)!.shapes.push(n)
+    }
+    const subs: SpecSubsection[] = [...byName.values()].map(({ name, shapes: members }) => {
+      const label = members.find((s) => s.type === 'text' && headlineOf(s).toLowerCase() === name.toLowerCase())
+      return {
+        index: 0,
+        title: name,
+        anchor: '',
+        titleShape: label,
+        notes: orderNotes(members.filter((s) => s !== label)),
+        ids: new Set(members.map((s) => s.id)),
+        after: [],
+      }
+    })
+    const edges: [SpecSubsection, SpecSubsection][] = []
+    for (const [a, b] of arrows) {
+      const sa = subs.find((x) => x.ids.has(a.id))
+      const sb = subs.find((x) => x.ids.has(b.id))
+      if (sa && sb && sa !== sb && !edges.some(([x, y]) => x === sa && y === sb)) edges.push([sa, sb])
+    }
+    const first = (x: SpecSubsection) => Math.min(...[...x.ids].map((id) => time(byId.get(id)!)))
+    const ordered = topoOrder(subs, edges, (a, b) => first(a) - first(b))
+    ordered.forEach((x, i) => (x.index = i + 1))
+    for (const [a, b] of edges) b.after.push(a)
+    for (const x of ordered) x.after.sort((p, q) => p.index - q.index)
+    return ordered
+  }
 
   const sectionOf = (s: BoardShape) => sections.find((sec) => sec.ids.has(s.id))!
   const earliest = (sec: SpecSection) => Math.min(...[...sec.ids].map((id) => time(byId.get(id)!)))
@@ -212,6 +289,7 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
   ordered.forEach((sec, i) => {
     sec.index = i + 1
     sec.anchor = slug(`${sec.index}. ${sec.title}`)
+    for (const sub of sec.subsections) sub.anchor = slug(`${sec.index}.${sub.index} ${sub.title}`)
   })
   for (const [a, b] of crossEdges) {
     a.leadsTo.push(b)
@@ -227,8 +305,18 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
 const link = (s: SpecSection) => `[${s.index}. ${s.title}](#${s.anchor})`
 
 /** Explain only the notation this file actually uses. */
-function readingKey(used: { steps: boolean; bullets: boolean; nested: boolean; forward: boolean; loops: boolean }) {
+function readingKey(used: {
+  subsections: boolean
+  sectionWide: boolean
+  steps: boolean
+  bullets: boolean
+  nested: boolean
+  forward: boolean
+  loops: boolean
+}) {
   const parts = [
+    used.subsections && 'A `###` heading is a subsection: one part of the section above it, built as part of that section.',
+    used.sectionWide && 'Notes listed before a section\'s first subsection apply to the whole section.',
     used.steps && 'Numbered notes are steps, in order.',
     used.bullets && 'Bulleted notes are things to build, in no set order.',
     used.nested &&
@@ -311,7 +399,27 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   const noteCount = sections.reduce((n, s) => n + s.noteCount, 0)
   const date = (opts.now ?? new Date()).toISOString().slice(0, 10)
   const headOf = (id: string) => headlineOf(byId.get(id)!)
-  const layouts = new Map(sections.map((s) => [s, layout(s.notes, arrows)]))
+  /** A section's notes in parts: the section-wide notes (order 0), then each subsection. */
+  interface Part {
+    sub?: SpecSubsection
+    order: number
+    L: Layout
+  }
+  const partsOf = new Map<SpecSection, Part[]>(
+    sections.map((s) => [
+      s,
+      [
+        { order: 0, L: layout(s.notes, arrows) },
+        ...s.subsections.map((sub) => ({ sub, order: sub.index, L: layout(sub.notes, arrows) })),
+      ],
+    ]),
+  )
+  const layouts = [...partsOf.values()].flat().map((p) => p.L)
+  const partOfNote = new Map<string, Part>()
+  for (const p of [...partsOf.values()].flat()) for (const id of p.L.pos.keys()) partOfNote.set(id, p)
+  const subTitles = new Map<string, SpecSubsection>()
+  for (const s of sections) for (const sub of s.subsections) if (sub.titleShape) subTitles.set(sub.titleShape.id, sub)
+  const subLink = (s: SpecSection, sub: SpecSubsection) => `[${s.index}.${sub.index} ${sub.title}](#${sub.anchor})`
 
   const out: string[] = []
   out.push(`# ${title.trim() || 'Untitled board'}`, '')
@@ -330,20 +438,29 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   let forwardN = 0
   let loopN = 0
   for (const s of sections) {
-    const L = layouts.get(s)!
-    const stepNo = new Map(L.top.map((n, i) => [n.shape.id, i + 1]))
-    /** How to name a note in this section: "step 2: …" in a flow. */
-    const nameIn = (id: string) =>
-      L.flow && stepNo.has(id) ? `step ${stepNo.get(id)}: ${headOf(id)}` : headOf(id)
+    const parts = partsOf.get(s)!
 
     /** One written-out arrow, from its source note's point of view. */
-    const arrowInfo = (fromPos: number, a: BoardShape): { loop: boolean; text: string } => {
+    const arrowInfo = (p: Part, fromPos: number, a: BoardShape): { loop: boolean; text: string } => {
       const toId = String(a.props.to)
       const target = sectionOf(toId)
       if (target === s) {
         if (toId === s.titleShape?.id) return { loop: true, text: `↺ back to: ${s.title}` }
-        const loop = L.pos.get(toId)! <= fromPos
-        return { loop, text: loop ? `↺ back to ${nameIn(toId)}` : `→ ${nameIn(toId)}` }
+        const subTitle = subTitles.get(toId)
+        const tp = subTitle ? undefined : partOfNote.get(toId)
+        if (tp === p) {
+          const stepNo = new Map(p.L.top.map((n, i) => [n.shape.id, i + 1]))
+          // "step 2: …" in a flow.
+          const name = p.L.flow && stepNo.has(toId) ? `step ${stepNo.get(toId)}: ${headOf(toId)}` : headOf(toId)
+          const loop = p.L.pos.get(toId)! <= fromPos
+          return { loop, text: loop ? `↺ back to ${name}` : `→ ${name}` }
+        }
+        // Another part of this section: link to its subsection heading (or the section for section-wide notes).
+        const sub = subTitle ?? tp!.sub
+        const where = sub ? subLink(s, sub) : link(s)
+        const label = subTitle ? '' : `: ${headOf(toId)}`
+        const loop = (sub?.index ?? 0) < p.order
+        return { loop, text: loop ? `↺ back to ${where}${label}` : `→ ${where}${label}` }
       }
       const label = toId === target.titleShape?.id ? '' : `: ${headOf(toId)}`
       const loop = target.index < s.index
@@ -360,40 +477,57 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     if (s.leadsTo.length) rel.push(`Leads to: ${s.leadsTo.map(link).join(', ')}`)
     if (rel.length) body.push(`_${rel.join(' · ')}_`, '')
     if (s.intro.length) body.push(...s.intro, '')
-
-    const noteById = new Map(s.notes.map((n) => [n.shape.id, n]))
-    const render = (n: SpecNote, pad: string, marker: string) => {
-      const written = arrows
-        .filter((x) => x.props.from === n.shape.id && !L.implicit.has(x.id))
-        .map((a) => arrowInfo(L.pos.get(n.shape.id)!, a))
-      written.forEach(count)
-      // Loops go on the note's own line so they can't be mistaken for an option or part.
-      const loops = written.filter((w) => w.loop).map((w) => w.text)
-      body.push(`${pad}${marker} ${n.head}${loops.length ? ` (${loops.join('; ')})` : ''}`)
-      const inner = pad + ' '.repeat(marker.length + 1)
-      for (const item of n.items) body.push(`${inner}- ${item}`)
-      for (const k of L.childrenOf.get(n.shape.id) ?? []) render(noteById.get(k)!, inner, '-')
-      for (const w of written) if (!w.loop) body.push(`${inner}- ${w.text}`)
+    if (s.subsections.length > 1 && s.subsections.every((x) => !x.after.length)) {
+      body.push("_No arrows connect its subsections, so they don't depend on each other: build them in any order._", '')
     }
-    L.top.forEach((n, i) => render(n, '', L.flow ? `${i + 1}.` : '-'))
 
-    // Arrows leaving the section's title (its label or box) belong to the section as a whole.
-    if (s.titleShape) {
-      for (const a of arrows.filter((x) => x.props.from === s.titleShape!.id)) {
-        const info = arrowInfo(-1, a)
-        count(info)
-        body.push(`- ${s.title} ${info.text}`)
+    for (const p of parts) {
+      const lines: string[] = []
+      const notes = p.sub ? p.sub.notes : s.notes
+      const noteById = new Map(notes.map((n) => [n.shape.id, n]))
+      const render = (n: SpecNote, pad: string, marker: string) => {
+        const written = arrows
+          .filter((x) => x.props.from === n.shape.id && !p.L.implicit.has(x.id))
+          .map((a) => arrowInfo(p, p.L.pos.get(n.shape.id)!, a))
+        written.forEach(count)
+        // Loops go on the note's own line so they can't be mistaken for an option or part.
+        const loops = written.filter((w) => w.loop).map((w) => w.text)
+        lines.push(`${pad}${marker} ${n.head}${loops.length ? ` (${loops.join('; ')})` : ''}`)
+        const inner = pad + ' '.repeat(marker.length + 1)
+        for (const item of n.items) lines.push(`${inner}- ${item}`)
+        for (const k of p.L.childrenOf.get(n.shape.id) ?? []) render(noteById.get(k)!, inner, '-')
+        for (const w of written) if (!w.loop) lines.push(`${inner}- ${w.text}`)
       }
+      p.L.top.forEach((n, i) => render(n, '', p.L.flow ? `${i + 1}.` : '-'))
+
+      // Arrows leaving a title (label or box) belong to the section or subsection as a whole.
+      const owner = p.sub ? p.sub : s
+      if (owner.titleShape) {
+        for (const a of arrows.filter((x) => x.props.from === owner.titleShape!.id)) {
+          const info = arrowInfo(p, -1, a)
+          count(info)
+          lines.push(`- ${owner.title} ${info.text}`)
+        }
+      }
+
+      if (p.sub) {
+        body.push(`### ${s.index}.${p.sub.index} ${p.sub.title}`, '')
+        if (p.sub.after.length) body.push(`_Comes after: ${p.sub.after.map((x) => subLink(s, x)).join(', ')}_`, '')
+        if (!lines.length) lines.push('_No notes yet._')
+      }
+      if (lines.length) body.push(...lines, '')
     }
-    body.push('')
+    if (body[body.length - 1] !== '') body.push('')
   }
 
   // ── Key + overview ────────────────────────────────────────────────────
-  const nestedN = [...layouts.values()].reduce((n, l) => n + l.nestedArrows, 0)
-  const stepN = [...layouts.values()].reduce((n, l) => n + l.stepArrows, 0)
+  const nestedN = layouts.reduce((n, l) => n + l.nestedArrows, 0)
+  const stepN = layouts.reduce((n, l) => n + l.stepArrows, 0)
   const key = readingKey({
-    steps: [...layouts.values()].some((l) => l.flow),
-    bullets: [...layouts.values()].some((l) => !l.flow && l.top.length > 0),
+    subsections: sections.some((s) => s.subsections.length),
+    sectionWide: sections.some((s) => s.subsections.length && s.notes.length),
+    steps: layouts.some((l) => l.flow),
+    bullets: layouts.some((l) => !l.flow && l.top.length > 0),
     nested: nestedN > 0,
     forward: forwardN > 0,
     loops: loopN > 0,
@@ -418,7 +552,8 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   out.push(deps ? '| # | Section | Notes | Comes after |' : '| # | Section | Notes |', deps ? '|---|---|---|---|' : '|---|---|---|')
   for (const s of sections) {
     const after = s.after.length ? s.after.map((a) => a.index).join(', ') : '—'
-    out.push(`| ${s.index} | [${s.title}](#${s.anchor}) | ${s.noteCount} |${deps ? ` ${after} |` : ''}`)
+    const subs = s.subsections.length ? ` — ${s.subsections.map((x) => subLink(s, x)).join(', ')}` : ''
+    out.push(`| ${s.index} | [${s.title}](#${s.anchor})${subs} | ${s.noteCount} |${deps ? ` ${after} |` : ''}`)
   }
   out.push('', ...body)
 

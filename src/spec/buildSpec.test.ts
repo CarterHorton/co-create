@@ -130,6 +130,84 @@ describe('named sections', () => {
   })
 })
 
+describe('subsections', () => {
+  const part = (id: string, x: number, text: string, section: string, subsection?: string, type = 'sticky') => {
+    const n = note(id, x, 0, text, type)
+    n.props.section = section
+    if (subsection) n.props.subsection = subsection
+    return n
+  }
+
+  it('splits a named section into its subsections, keeping section-wide notes apart', () => {
+    const shapes = [
+      part('stack', 0, 'Use React', 'Front-end'),
+      part('form', 200, 'Email + password form', 'Front-end', 'Login page'),
+      part('chart', 3000, 'Usage chart', 'Front-end', 'Dashboard'),
+      part('reset', 400, 'Forgot password link', 'Front-end', ' login PAGE '),
+    ]
+    const [sec] = buildSections(shapes)
+    expect(sec.title).toBe('Front-end')
+    expect(sec.notes.map((n) => n.text)).toEqual(['Use React'])
+    expect(sec.subsections.map((x) => [x.index, x.title, x.notes.map((n) => n.text)])).toEqual([
+      [1, 'Login page', ['Email + password form', 'Forgot password link']],
+      [2, 'Dashboard', ['Usage chart']],
+    ])
+    expect(sec.subsections[0].anchor).toBe('11-login-page')
+    expect(sec.noteCount).toBe(4)
+  })
+
+  it('ignores a subsection on a note with no named section', () => {
+    const n = note('n', 0, 0, 'Loose')
+    n.props.subsection = 'Orphan'
+    const [sec] = buildSections([n])
+    expect(sec.subsections).toEqual([])
+  })
+
+  it('orders subsections by arrows and writes them as ### headings with cross-links', () => {
+    const shapes = [
+      part('stack', 0, 'Use React', 'Front-end'),
+      part('chart', 200, 'Usage chart', 'Front-end', 'Dashboard'), // created first…
+      part('form', 400, 'Login form', 'Front-end', 'Login page'),
+      part('label', 600, 'Login page', 'Front-end', 'Login page', 'text'), // its label: the title, not a note
+      arrow('a', 'form', 'chart'), // …but login leads to the dashboard
+    ]
+    const md = buildMarkdown('App', shapes, { now: new Date('2026-01-01') })
+    expect(md).toContain('A `###` heading is a subsection')
+    expect(md).toContain("Notes listed before a section's first subsection apply to the whole section.")
+    expect(md).toContain(
+      [
+        '## 1. Front-end',
+        '',
+        '- Use React',
+        '',
+        '### 1.1 Login page',
+        '',
+        '- Login form',
+        '  - → [1.2 Dashboard](#12-dashboard): Usage chart',
+        '',
+        '### 1.2 Dashboard',
+        '',
+        '_Comes after: [1.1 Login page](#11-login-page)_',
+        '',
+        '- Usage chart',
+        '',
+      ].join('\n'),
+    )
+    expect(md).toContain('| 1 | [Front-end](#1-front-end) — [1.1 Login page](#11-login-page), [1.2 Dashboard](#12-dashboard) | 3 |')
+    expect(md).not.toMatch(/\n\n\n/)
+  })
+
+  it('says when subsections are independent', () => {
+    const md = buildMarkdown(
+      'App',
+      [part('a', 0, 'Form', 'Front-end', 'Login'), part('b', 200, 'Chart', 'Front-end', 'Dashboard')],
+      { now: new Date('2026-01-01') },
+    )
+    expect(md).toContain("No arrows connect its subsections, so they don't depend on each other")
+    expect(md).not.toContain('apply to the whole section')
+  })
+})
+
 describe('buildMarkdown', () => {
   it('writes overview, sections with cross-links, and an order of work', () => {
     const shapes = [
