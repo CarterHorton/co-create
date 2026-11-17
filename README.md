@@ -1,268 +1,92 @@
 # Co-Create
 
-> **A collaborative whiteboard platform that transforms your diagrams into AI-ready specifications.**
+> Whiteboard with your team on a live call. Co-Create turns what you drew into a
+> Markdown spec an AI agent can build from.
 
-[![Version](https://img.shields.io/badge/version-0.0.1-blue.svg)](./package.json)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![DeepSpace](https://img.shields.io/badge/powered%20by-DeepSpace-orange.svg)](https://deep.space)
+## The idea
 
-## 🎯 Vision
+1. **A group call with a shared whiteboard.** Everyone in the call sees and
+   edits the same canvas in real time: sticky notes, boxes, arrows, text.
+2. **Every change is versioned, like Git.** Edits are recorded as a history of
+   commits (who changed what, and when), so you can scrub back through how the
+   idea evolved, branch off an alternative, or restore an earlier state.
+3. **Time + proximity become structure.** Elements placed close together on the
+   board, and elements created around the same moment in the call, are almost
+   always part of the same thought. Co-Create clusters them by **spatial
+   proximity** (where they sit on the canvas) and **temporal proximity** (when
+   they were created / edited), and uses arrows as explicit relationships.
+4. **Export an AI-ready `.md` file.** Each cluster becomes a section of a spec
+   (goal, requirements, open questions, tasks), ordered by when the group worked
+   on it, with the history available as context. Hand the file to Claude Code,
+   Cursor, or any other agent.
 
-Co-Create is a collaborative whiteboard platform where teams can **diagram thought processes and design solutions**. The app intelligently consolidates this work based on **time created and location** to generate **Markdown documentation files** that can be easily handed off to AI agents for rapid product development.
+> "Location" in this project always means **position on the canvas**, not the
+> participants' physical/GPS location.
 
-## ✨ What Makes This Special
+## Status
 
-- **Live Collaborative Whiteboarding** - Real-time multiplayer canvas for brainstorming, flowcharts, and system diagrams
-- **Smart Consolidation** - Automatically organizes ideas by creation time and geographic location
-- **AI-Ready Documentation** - Converts visual designs into structured Markdown specifications
-- **Seamless AI Handoff** - Export ready-to-use spec files that AI agents can interpret and implement
+Early scaffold. What exists today:
 
-## 🚀 Features
+- DeepSpace app scaffold (auth, records, Durable Objects, AI tool routes).
+- Landing page with the Co-Create theme (`src/pages/index.tsx`, `src/themes.css`).
+- `AppCanvasRoom` is already wired in `worker.ts` — the collaborative canvas
+  backend is ready; the whiteboard UI is not built yet.
 
-### Planned Roadmap
+See [BUILD_OUTLINE.md](./BUILD_OUTLINE.md) for the build plan and
+[DESIGN.md](./DESIGN.md) for the visual design system.
 
-#### Phase 1: Collaborative Whiteboard Core
-- [ ] Real-time collaborative canvas (using Yjs for sync)
-- [ ] Diagram tools (shapes, arrows, text boxes)
-- [ ] Infinite canvas with pan/zoom
-- [ ] Multiple room/workspace support
-- [ ] Room-based organization with deep linking
+## Stack
 
-#### Phase 2: Smart Consolidation Engine
-- [ ] Time-based session tracking
-- [ ] Location-aware grouping (geolocation integration)
-- [ ] Automatic pattern detection in diagrams
-- [ ] Timeline view of all sessions
-- [ ] Session merging and comparison tools
+| Concern              | Tool                                                              |
+| -------------------- | ----------------------------------------------------------------- |
+| App framework / host | [DeepSpace](https://docs.deep.space) on Cloudflare Workers         |
+| Shared whiteboard    | DeepSpace `useCanvas` + `CanvasRoom` Durable Object               |
+| Who's here / cursors | DeepSpace presence (`useCanvas` viewports, presence hooks)         |
+| Group audio/video    | LiveKit via DeepSpace's `livekit/*` integration + `livekit-client` |
+| Version history      | A `commits` collection of canvas diffs/snapshots (Git-style log)   |
+| Spec generation      | Deterministic clustering + Claude via DeepSpace AI routes          |
+| UI                   | React 19, Tailwind v4, Base UI primitives in `src/components/ui`   |
 
-#### Phase 3: Markdown Generator
-- [ ] Visual-to-text conversion engine
-- [ ] Structured output generation (Mermaid, PlantUML, etc.)
-- [ ] Metadata extraction (tags, timestamps, contributors)
-- [ ] Template-based formatting
-- [ ] Export to .md with proper structure
+## Getting started
 
-#### Phase 4: AI Integration Layer
-- [ ] API endpoints for AI agent consumption
-- [ ] Schema validation for AI outputs
-- [ ] Tool definitions for common actions
-- [ ] Streaming response support
-- [ ] Multiple AI model compatibility
-
-#### Phase 5: Team Features
-- [ ] User authentication and management
-- [ ] Role-based access control
-- [ ] Real-time presence indicators
-- [ ] Comments and annotations
-- [ ] Version history and rollback
-
-## 🏗️ Architecture
-
-### Technology Stack
-
-- **Framework**: DeepSpace (real-time collaborative framework)
-- **Runtime**: Cloudflare Workers + Durable Objects
-- **State Sync**: Yjs (CRDT-based collaboration)
-- **Database**: SQLite via Durable Objects
-- **UI**: React 19 with Tailwind CSS
-- **AI Integration**: AI SDK v7
-
-### Core Components
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Client Application                     │
-│  (React SPA - Vite build, Cloudflare Edge)               │
-└─────────────────────────────────────────────────────────┘
-                           ↕ WebSocket
-┌─────────────────────────────────────────────────────────┐
-│                   DeepSpace Rooms                         │
-│  ┌──────────────┬──────────────┬────────────────────┐   │
-│  │ CanvasRoom   │ RecordRoom   │ PresenceRoom       │   │
-│  └──────────────┴──────────────┴────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                           ↕ SQLite (DOs)
-┌─────────────────────────────────────────────────────────┐
-│                   Cloudflare Durable Objects              │
-│  - CanvasRooms: Collaborative whiteboard sessions         │
-│  - RecordRooms: Persistent data storage                  │
-│  - PresenceRooms: Real-time user presence                 │
-│  - CronRooms: Scheduled consolidation tasks               │
-│  - JobRooms: Background AI processing                     │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
-
-1. **User creates/edits diagram** → CanvasRoom syncs via Yjs
-2. **Session metadata tracked** → RecordRoom timestamps + location
-3. **Scheduled consolidation** → CronRoom triggers processing
-4. **AI generation** → JobRoom executes AI agent calls
-5. **Markdown output** → Available for download/handoff
-
-## 🛠️ Getting Started
-
-### Prerequisites
-
-- Node.js 22+ 
-- npm 11.6+ or pnpm
-
-### Installation
+Prerequisites: Node.js 22.15+ (or 24 / 26) and npm 11.6+.
 
 ```bash
-# Navigate to project directory
-cd co-create
-
-# Install dependencies
 npm install
-
-# Configure DeepSpace authentication
 npx deepspace auth login
+npm run dev            # = npx deepspace dev start (Vite + Miniflare)
 ```
 
-### Local Development
+Useful commands:
 
-```bash
-# Start local dev server (Vite + Miniflare)
-npm run dev
+| Command              | What it does                                   |
+| -------------------- | ---------------------------------------------- |
+| `npm run dev`        | Local dev server                               |
+| `npm run validate`   | Typecheck + unit tests                         |
+| `npm run lint`       | ESLint                                         |
+| `npm test`           | Playwright suites via `deepspace test run`     |
+| `npm run deploy`     | Deploy to `co-create.app.space`                |
+| `npx deepspace add --list` | Optional features (e.g. `canvas`, `ai-chat`) |
 
-# Or use DeepSpace CLI
-npx deepspace dev start
-```
-
-### Deployment
-
-```bash
-# Push code to cloud repo
-npx deepspace push
-
-# Deploy to <app>.app.space
-npx deepspace deploy
-```
-
-## 📋 Commands Reference
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start local development server |
-| `npm run build` | Build production bundle |
-| `npm run test` | Run all tests |
-| `npm run deploy` | Deploy to Cloudflare Workers |
-| `npx deepspace auth login` | Authenticate with DeepSpace |
-| `npx deepspace push` | Sync to cloud repo |
-| `npx deepspace add <feature>` | Add optional features (messaging, etc.) |
-
-## 🤖 AI Agent Integration
-
-The app exposes tools via HTTP, MCP, and browser tool interfaces that AI agents can consume:
-
-```typescript
-// Example AI agent usage pattern
-const spec = await aiAgent.generateSpecification({
-  canvasData: canvasContent,
-  sessionId: currentSession.id,
-  locationContext: locationData,
-});
-
-// Output is Markdown ready for implementation
-console.log(spec.markdown);
-```
-
-### Available Tool Categories (see `src/ai/tools.ts`)
-
-- **Canvas tools**: Diagram manipulation and analysis
-- **Consolidation tools**: Session merging and pattern detection
-- **Export tools**: Format conversion to various AI-friendly formats
-- **AI interface tools**: Model selection, prompt management
-
-## 📁 Project Structure
+## Project layout
 
 ```
-co-create/
-├── src/
-│   ├── ai/          # AI integration and tool definitions
-│   ├── server/      # HTTP routes and middleware
-│   └── cron/        # Scheduled tasks for consolidation
-├── public/          # Static assets
-├── tests/           # Test suite
-├── src/server/      # Route handlers
-├── deepspace.migrations.json  # Database migrations
-└── wrangler.toml    # Cloudflare configuration
+src/
+  pages/            file-based routes (index.tsx = static landing,
+                    (app)/ = signed-in app with DeepSpace providers)
+  components/ui/    Base UI component kit
+  schemas/          collection schemas (add commits/boards here)
+  ai/               AI tools + chat routes
+  server/           HTTP / action / realtime routes
+  cron.ts, jobs.ts  scheduled + background work
+worker.ts           Worker entry + Durable Object classes
+wrangler.toml       Cloudflare config (app id, DO bindings)
 ```
 
-## 🔧 Configuration
+## Docs
 
-### DeepSpace Setup
-
-```bash
-# Initial authentication
-npx deepspace auth login
-
-# Add features (optional)
-npx deepspace add messaging
-npx deepspace add ai-tools
-```
-
-### Environment Variables
-
-See `wrangler.toml` for production configuration:
-
-- `DEEPSPACE_APP_ID` - Unique app identifier
-- `APP_NAME` - Application name
-- `ALLOW_DEBUG_ROUTES` - Enable debug endpoints (dev only)
-- Platform bindings for API, R2, and auth services
-
-## 🤝 Contributing
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to the branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
-
-### Development Workflow
-
-```bash
-# Create a workspace for your task
-npx deepspace workspace new -t "implement whiteboard sync"
-
-# Commit changes to the workspace
-npm run commit
-
-# Sync with main codebase
-npx deepspace workspace sync
-
-# Land the changes
-npx deepspace workspace land
-```
-
-## 📚 Documentation Links
-
-- [DeepSpace Docs](https://docs.deep.space)
-- [Yjs Collaboration Guide](https://yjs.dev)
-- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
-
-## 🐛 Reporting Issues
-
-Please use the provided reporting tools to collect diagnostics and submit issues with GitHub CLI.
-
-```bash
-npx deepspace report bug --help
-```
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
----
-
-## 🎯 Next Steps
-
-To start building:
-
-1. **Set up DeepSpace authentication** (`npx deepspace auth login`)
-2. **Explore existing routes and schemas** in `src/` directory
-3. **Implement the whiteboard canvas** component
-4. **Connect AI tools** to generate Markdown from diagrams
-
-The foundation is ready - start creating! 🚀
+- DeepSpace: <https://docs.deep.space/llms.txt> (append `.md` to any page)
+  - Canvas: <https://docs.deep.space/guides/canvas.md>
+  - LiveKit rooms: <https://docs.deep.space/guides/livekit.md>
+  - AI chat: <https://docs.deep.space/guides/ai-chat.md>
+- [AGENTS.md](./AGENTS.md) — instructions for coding agents working in this repo.

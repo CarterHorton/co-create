@@ -1,4 +1,4 @@
-# Design System - DeepSpace App
+# Design System - Co-Create
 
 ## Overview
 
@@ -140,9 +140,9 @@ to return structured output."
 ┌─────────────────────────────────────────┐
 │                                          │
 │                                         ║  [Royal Blue glow]
-│    DEEPSPACE                            ║  emanating from bottom
+│    CO-CREATE                            ║  emanating from bottom
 │                                         ║
-│   A Real-Time Collaborative Editor      ║
+│   Design in a way you understand...     ║
 │                                          │
 │              [START CREATING]           │
 │              (1px border, hard         │
@@ -188,7 +188,7 @@ button.start-create {
 }
 
 button.start-create:hover {
-  border-color: #4169E1; /* Royal blue at 50% on hover */
+  border-color: rgba(65, 105, 225, 0.5); /* Royal blue at 50% on hover */
 }
 ```
 
@@ -222,7 +222,7 @@ button.start-create:hover {
 |------|------------|--------|------------|--------------|
 | Primary | Transparent | Black 1px | Black | Blue border at 50% |
 | Secondary | White | Gray 1px | Black | Gray 40% flash |
-| Tool Invoke | Royal Blue @30% | None | White | Opacity →45% |
+| Tool Invoke | Royal Blue @30% | None | Black | Opacity →45% |
 
 ### Cards (Tools/Features)
 ```css
@@ -232,7 +232,7 @@ button.start-create:hover {
   padding: 24px;
   
   &:hover {
-    border-color: #4169E1; /* Royal Blue @30% */
+    border-color: rgba(65, 105, 225, 0.3); /* Royal Blue @30% */
   }
 }
 
@@ -244,7 +244,7 @@ button.start-create:hover {
 ### Tool Invocations
 - Display as sharp rectangular blocks
 - Background: Royal Blue at 30% opacity
-- Text: White, uppercase, small
+- Text: Black, uppercase, small (white on a 30% blue tint fails contrast)
 - Hard corners throughout
 - Example: `/invoke src/ai/tools --json`
 
@@ -309,8 +309,14 @@ No blurred shadows, no soft depth cues. All elevation comes from border weight c
 ## File Conventions
 
 ### Design Tokens Location
+The live tokens are the `[data-theme="cocreate"]` block in `src/themes.css`
+(shadcn-style `--color-*` names, `--radius: 0`) plus `--color-royal` and the
+`--font-display/sans/mono` families in the `@theme` block of `src/styles.css`.
+In Tailwind use `bg-background`, `text-foreground`, `border-border`,
+`font-display`, and royal blue only with an opacity modifier (`border-royal/50`,
+`ring-royal/30`). The values below are the reference palette:
+
 ```css
-/* src/styles/design-tokens.css */
 :root {
   /* Colors */
   --bg-primary: #FFFFFF;

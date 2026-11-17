@@ -1,426 +1,167 @@
 # Co-Create Build Outline
 
-## Executive Summary
+## Concept in one line
 
-Co-Create is a **collaborative whiteboard platform** built on DeepSpace that transforms visual designs into structured Markdown specifications for AI agents to implement. The system consolidates collaborative sessions based on time and location, outputting ready-to-use documentation files.
+A group call with a shared whiteboard, whose every change is versioned like
+Git, and whose contents are clustered by **canvas proximity + time** into a
+Markdown spec that AI agents can implement.
+
+```
+ Call + whiteboard ──▶ Change history ──▶ Clustering ──▶ spec.md
+ (LiveKit + canvas)    (commit log)       (space+time)   (AI-written, human-reviewed)
+```
+
+"Location" always means **x/y position on the canvas**. There is no GPS /
+geolocation anywhere in this product.
 
 ---
 
-## Core Concept Flow
+## Building blocks DeepSpace already gives us
 
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌──────────────┐
-│  Collaborative │ → │  Session     │ → │  Consolidation   │ → │  Markdown    │
-│   Whiteboard  │    │  Recording   │    │  Engine         │    │  Generator   │
-└─────────────┘    └──────────────┘    └─────────────────┘    └──────────────┘
-       ↑                    ↑                      ↑                  ↑
-   Real-time sync      Timestamp +            Time/location     AI-ready spec
-                      location data           analysis          for implementation
-```
+| Need                     | Use                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| Real-time shared canvas  | `useCanvas(boardId)` → `shapes`, `addShape`, `moveShape`, `updateShape`, `undo/redo` |
+| Shape timestamps/authors | Every `CanvasShapeClient` has `createdBy`, `createdAt`, `updatedAt`                  |
+| Live cursors / viewports | `viewports` from `useCanvas`, presence hooks                                         |
+| Audio/video call         | `integration.post('livekit/generate-token', { roomName })` + `livekit-client`        |
+| Persistent data          | Collections in `src/schemas/` (RecordRoom, RBAC)                                     |
+| AI calls                 | `src/ai/*` routes (Claude via the platform), background jobs for long runs           |
 
----
-
-## Component Architecture
-
-### 1. Canvas Whiteboard (Frontend)
-
-**Purpose**: Collaborative diagramming surface
-
-**Key Features to Build**:
-- Infinite canvas with pan/zoom controls
-- Shape primitives (rectangles, circles, arrows, text boxes)
-- Connection lines between elements
-- Layer management (bring forward/send back)
-- Multi-user cursor tracking
-- Undo/redo history via Yjs operations
-
-**Technical Implementation**:
-```typescript
-// src/components/CanvasWhiteboard.tsx
-- Canvas container with HTML5 drag-drop
-- Element rendering (SVG/CSS-based)
-- Yjs-based state synchronization
-- Touch/mouse event handling
-```
-
-### 2. Session Recorder (Backend)
-
-**Purpose**: Capture and timestamp all collaborative sessions
-
-**Key Features to Build**:
-- WebSocket room subscription management
-- Operation log streaming
-- User presence tracking
-- Geographic location capture
-- Session metadata storage (tags, participants)
-
-**Technical Implementation**:
-```typescript
-// Durable Object: AppRecordRoom
-- Yjs document snapshots on interval
-- Location data collection from clients
-- Participant list maintenance
-- Room lifecycle management
-```
-
-### 3. Consolidation Engine (Scheduler)
-
-**Purpose**: Merge and organize sessions based on time/location patterns
-
-**Key Features to Build**:
-- Session clustering algorithm
-- Temporal grouping (morning/afternoon/sessions)
-- Geographic proximity detection
-- Pattern identification in diagrams
-- Duplicate suppression
-- Summary generation
-
-**Technical Implementation**:
-```typescript
-// src/cron.ts + Durable Object: AppCronRoom
-- Scheduled task runner
-- Session analysis jobs
-- Clustering logic (DBSCAN or similar)
-- Location-based filtering
-```
-
-### 4. Markdown Generator (AI Interface)
-
-**Purpose**: Convert consolidated sessions to structured documentation
-
-**Key Features to Build**:
-- Diagram element extraction
-- Relationship mapping
-- Context-aware formatting
-- Template-based output
-- Multi-format support (Mermaid, PlantUML, Flowchart)
-
-**Technical Implementation**:
-```typescript
-// src/ai/tools.ts + JobRoom
-- Element parsing utilities
-- Relationship graph builder
-- Markdown template engine
-- Schema validation for AI consumption
-```
-
-### 5. AI Agent Bridge (API Layer)
-
-**Purpose**: Expose tools and data for AI agent consumption
-
-**Key Features to Build**:
-- HTTP endpoint definitions
-- MCP protocol integration
-- Browser tool registration
-- Streaming response support
-- Authentication handling
-
-**Technical Implementation**:
-```typescript
-// src/ai/agent.ts + worker.ts routes
-- Tool schema definitions
-- Request validation
-- Response streaming
-- Error handling
-```
+Backend: `AppCanvasRoom` is already bound in `worker.ts` / `wrangler.toml`.
 
 ---
 
-## Data Models
+## Data model
 
-### Canvas Element Schema
-
-```typescript
-interface CanvasElement {
-  id: string;
-  type: 'rectangle' | 'circle' | 'arrow' | 'text';
-  position: { x: number; y: number };
-  dimensions: { width: number; height: number };
-  content?: string;
-  connections?: string[]; // IDs of connected elements
-  style?: ElementStyle;
-  createdAt: number; // timestamp
-  updatedAt: number;
-  ownerId: string;
+```ts
+// Canvas shape (provided by DeepSpace; we define `type` + `props`)
+type ShapeType = 'sticky' | 'box' | 'text' | 'arrow' | 'frame'
+props: {
+  text?: string
+  color?: string
+  from?: string; to?: string   // arrows: shape ids they connect
 }
 
-interface CanvasRoomState {
-  elements: Record<string, CanvasElement>;
-  selection: string[];
-  zoomLevel: number;
-  panOffset: { x: number; y: number };
-  history: YjsHistory;
+// boards collection — one per whiteboard / call
+interface Board {
+  id: string
+  title: string
+  canvasId: string        // passed to useCanvas
+  callRoom: string        // LiveKit room name
+  createdBy: string
+  headCommitId?: string
+}
+
+// commits collection — the Git-style history
+interface Commit {
+  id: string
+  boardId: string
+  parentId?: string       // linear history first; branches later
+  authorId: string
+  createdAt: string
+  message: string         // auto ("Added 3 notes near 'Auth'") or user-written
+  ops: ShapeOp[]          // diff vs parent: add / update / move / delete
+  snapshot?: CanvasShape[]// full state every N commits for fast checkout
+}
+
+// specs collection — generated exports
+interface Spec {
+  id: string
+  boardId: string
+  commitId: string        // exact board state the spec was built from
+  markdown: string
+  clusters: Cluster[]     // kept so the UI can highlight groups on the board
 }
 ```
 
-### Session Metadata Schema
+### Why not real Git?
 
-```typescript
-interface SessionMetadata {
-  roomId: string;
-  sessionId: string;
-  participants: Array<{
-    userId: string;
-    joinedAt: number;
-    leftAt?: number;
-  }>;
-  locationData: {
-    coordinates?: { lat: number; lng: number };
-    accuracy?: number;
-    timestamp: number;
-  };
-  tags: string[];
-  summary?: string;
-}
-```
-
-### Consolidated Output Schema
-
-```typescript
-interface ConsolidatedSession {
-  originalSessions: string[]; // session IDs that merged
-  timeRange: { start: number; end: number };
-  locationContext: { region: string; centroid?: GeoPoint };
-  elements: Map<string, CanvasElement>;
-  relationships: RelationshipGraph;
-  metadata: ConsolidationMetadata;
-}
-
-interface Relationships {
-  type: 'references' | 'depends_on' | 'extends' | 'implements';
-  sourceId: string;
-  targetId: string;
-  label?: string;
-  confidence: number; // AI-assessed confidence
-}
-```
+Running `isomorphic-git` in the browser is possible, but a canvas isn't text
+files, merges of x/y positions are meaningless to Git, and we'd still need
+storage for the repo. A commit log of shape diffs in a collection gives the same
+user-facing features (history, diff, restore, branch) with far less machinery.
+Revisit only if users want to push a board into an actual repo.
 
 ---
 
-## Development Phases
+## How a spec is produced
 
-### Phase 1: Foundation (Weeks 1-2)
+1. **Pick a commit** (default: HEAD at the end of the call).
+2. **Cluster shapes** — deterministic, runs in the browser or a worker:
+   - Spatial: single-linkage / DBSCAN on shape centers (ε ≈ 1.5× median shape
+     size). Shapes inside a `frame` are always one cluster.
+   - Temporal: split a spatial cluster when `createdAt` gaps exceed a threshold
+     (e.g. 5 min) — same place, different conversation.
+   - Edges: arrows connect clusters into a dependency graph.
+3. **Order sections** by each cluster's earliest `createdAt` (the order the
+   group discussed them), then by graph dependencies.
+4. **Ask Claude to write the spec** from structured input (clusters, texts,
+   edges, authors, timestamps, optionally the call transcript later). Fixed
+   output template:
 
-**Goals**: Core whiteboard with basic collaboration
+   ```md
+   # <Board title>
+   ## Context
+   ## Goals
+   ## <Cluster title>
+   - Requirements …
+   - Open questions …
+   ## Tasks (ordered, with dependencies)
+   ## Source
+   board <id> @ commit <id>, generated <date>
+   ```
 
-**Tasks**:
-1. [ ] Set up DeepSpace project scaffolding
-2. [ ] Implement CanvasRoom Yjs sync
-3. [ ] Build basic canvas UI (shapes, pan/zoom)
-4. [ ] Add WebSocket connection handling
-5. [ ] Create session recording Durable Object
-6. [ ] Write unit tests for core components
-
-**Deliverable**: Functional whiteboard with 2-user collaboration
-
-### Phase 2: Session Management (Weeks 3-4)
-
-**Goals**: Recording and organization
-
-**Tasks**:
-1. [ ] Implement presence tracking room
-2. [ ] Add location data collection (with permission)
-3. [ ] Create session timeline view
-4. [ ] Build room search/filter UI
-5. [ ] Implement room creation/editing flows
-6. [ ] Add export to image functionality
-
-**Deliverable**: Full session recording and organization
-
-### Phase 3: Consolidation Engine (Weeks 5-7)
-
-**Goals**: Smart session merging and analysis
-
-**Tasks**:
-1. [ ] Build clustering algorithm for sessions
-2. [ ] Implement location-based grouping
-3. [ ] Create time-range analysis logic
-4. [ ] Add duplicate element suppression
-5. [ ] Build summary generation (AI-assisted)
-6. [ ] Create consolidation UI dashboard
-
-**Deliverable**: Automatic session consolidation feature
-
-### Phase 4: Markdown Generation (Weeks 8-10)
-
-**Goals**: Convert diagrams to structured documentation
-
-**Tasks**:
-1. [ ] Parse canvas elements to text representations
-2. [ ] Build relationship graph builder
-3. [ ] Implement Mermaid.js output generator
-4. [ ] Create PlantUML converter
-5. [ ] Add template customization UI
-6. [ ] Export metadata (contributors, timestamps)
-7. [ ] Validate output structure
-
-**Deliverable**: Markdown file generation from diagrams
-
-### Phase 5: AI Integration (Weeks 11-13)
-
-**Goals**: Enable AI agent handoff and consumption
-
-**Tasks**:
-1. [ ] Define tool schemas for AI agents
-2. [ ] Build HTTP endpoints for tool access
-3. [ ] Implement MCP protocol integration
-4. [ ] Add browser tool registration
-5. [ ] Create streaming response handlers
-6. [ ] Build authentication middleware
-7. [ ] Document API usage patterns
-
-**Deliverable**: Production-ready AI agent interface
-
-### Phase 6: Polish & Deployment (Weeks 14-15)
-
-**Goals**: Production readiness and launch prep
-
-**Tasks**:
-1. [ ] Comprehensive testing suite
-2. [ ] Performance optimization
-3. [ ] Security audit
-4. [ ] Documentation completion
-5. [ ] Cloudflare deployment setup
-6. [ ] Migration scripts
-7. [ ] Error handling improvements
-
-**Deliverable**: Production-ready application
+5. **Human review → download / copy / expose via agent tool** (`specs.get`).
 
 ---
 
-## Key API Endpoints (Planned)
+## Phases
 
-### Consolidation Service
+Each phase ends with something usable.
 
-```typescript
-// POST /api/consolidate
-/**
- * Trigger consolidation for a session or session group
- * Response: { sessionId, consolidatedElements, relationships }
- */
-export async function consolidateSessions(params: {
-  roomIds: string[];
-  timeWindowMinutes?: number;
-  locationRadiusKm?: number;
-}): Promise<ConsolidatedResult>;
+### Phase 1 — Whiteboard (start here)
+- [ ] `boards` schema + board list on `/home` (create / open)
+- [ ] `/board/:id` page with `useCanvas`: sticky notes, boxes, text, arrows,
+      drag to move, pan/zoom, multi-user cursors
+- [ ] Apply DESIGN.md to the canvas chrome (toolbar, hard corners, mono UI)
+- **Done when:** two browser windows edit the same board live.
 
-// GET /api/consolidate/history
-/** Get past consolidation operations */
-export async function getConsolidationHistory(params: {
-  roomId: string;
-  limit?: number;
-}): Promise<ConsolidationRecord[]>;
-```
+### Phase 2 — Group call
+- [ ] Install `livekit-client`; "Join call" mints a token with
+      `livekit/generate-token` (signed-in users only) and connects
+- [ ] Participant tiles / mute in a side rail next to the board
+- **Done when:** two users can talk while drawing on the same board.
 
-### AI Tool Interface
+### Phase 3 — Version history
+- [ ] `commits` schema; auto-commit after N seconds of quiet or on demand
+- [ ] History timeline: scrub to preview old states, diff highlight, restore
+- [ ] (Later) branch from a commit to try an alternative layout
+- **Done when:** you can replay how a board evolved during a call.
 
-```typescript
-// POST /api/ai/generate-spec
-/** Generate Markdown specification from canvas data */
-export async function generateSpecification(request: {
-  roomIds: string[];
-  format: 'mermaid' | 'plantuml' | 'flowchart';
-  template?: TemplateConfig;
-}): Promise<{
-  markdown: string;
-  metadata: ExportMetadata;
-  relationships: RelationshipSummary;
-}>;
+### Phase 4 — Clustering
+- [ ] Pure function `clusterShapes(shapes, opts) → Cluster[]` with unit tests
+- [ ] Overlay that outlines detected clusters on the board; let users merge /
+      split / rename clusters before export
+- **Done when:** clusters match what a person would draw circles around.
 
-// POST /api/ai/tools/list
-/** List available tools for AI consumption */
-export async function listTools(): Promise<ToolDefinition[]>;
-```
+### Phase 5 — Spec export
+- [ ] Server route that sends clusters to Claude and stores a `Spec`
+- [ ] Preview + edit + download `.md`; copy-to-clipboard
+- [ ] Expose `specs` through the app's agent tools so Claude Code can pull a
+      spec directly (`npx deepspace agent invoke …`)
+- **Done when:** a board turns into a spec an agent can act on unmodified.
+
+### Later
+- Call transcription feeding the spec (what was *said* near each cluster)
+- Spec diffing between commits ("what changed since last call")
+- Templates per spec type (feature, bug, research)
 
 ---
 
-## Critical Dependencies
+## Decisions to make
 
-### Must-Have (Core)
-
-- [x] DeepSpace SDK (already installed v0.44.2)
-- [x] Yjs (already installed - CRDT sync)
-- [ ] Cloudflare Durable Objects (DOs)
-- [ ] Hono router (already installed)
-- [ ] SQLite via DO bindings
-
-### Nice-to-Have (Enhancement)
-
-- AI model integration (Anthropic/Google/OpenAI)
-- Geo-location services (for location grouping)
-- Mermaid.js library (diagram rendering)
-- PlantUML converter
-- Image export utilities
-
----
-
-## Security Considerations
-
-1. **Authentication**: DeepSpace JWT handling via existing auth routes
-2. **Room Access**: Role-based room membership checks in RecordRoom/CanvasRoom
-3. **Location Data**: Opt-in with clear user consent
-4. **Data Privacy**: No PII in canvas content by default
-5. **Rate Limiting**: Implement for AI endpoint calls
-
----
-
-## Success Metrics
-
-### Early Version (V0.1)
-- [ ] 2+ concurrent users can edit same diagram
-- [ ] Session recording captures all operations
-- [ ] Location data collected with permission
-- [ ] Basic consolidation works manually
-
-### Mid Version (V0.5)
-- [ ] Automatic session clustering functional
-- [ ] Markdown generation produces valid output
-- [ ] AI agent can consume via API
-- [ ] >90% diagram parse accuracy
-
-### Target Version (V1.0)
-- [ ] Seamless collaboration experience
-- [ ] One-click export to AI-ready spec
-- [ ] <2s latency for sync operations
-- [ ] 95+ user satisfaction score
-
----
-
-## Quick Start for Developers
-
-```bash
-# 1. Initial setup
-npx deepspace auth login
-npm install
-
-# 2. Explore existing structure
-cat src/ai/tools.ts           # AI tool definitions
-cat worker.ts                 # Worker routes and DOs
-cat src/cron.ts               # Scheduled tasks
-
-# 3. Start local development
-npm run dev
-
-# 4. Deploy when ready
-npm run build
-npx deepspace deploy
-```
-
----
-
-## Open Questions (To Decide)
-
-1. **AI Model Provider**: Which AI services to integrate? (Anthropic, Google, or keep model-agnostic?)
-2. **Location Precision**: How granular should location grouping be? (City-level vs specific coordinates)
-3. **Export Formats**: Mermaid.js only, or multiple diagram formats?
-4. **Team Features**: Should Phase 1 include auth/teams, or focus on core whiteboard first?
-5. **AI Handoff**: Provide full tool definitions for any AI agent, or specific partner integrations?
-
----
-
-## Contact & Support
-
-For questions about this build outline:
-- Review existing code in `src/` directory
-- Check DeepSpace documentation at https://docs.deep.space
-- See AGENTS.md for project-specific commands
+1. **Commit cadence:** auto-commit on idle (recommended) vs. explicit commit only.
+2. **Call UI:** full video tiles vs. audio-first with small avatars (recommended
+   to start: audio-first, it leaves room for the board).
+3. **Board access:** anyone with the link vs. invited members only.
+4. **Who pays for AI/LiveKit:** app owner credits (default) vs. per-user.
