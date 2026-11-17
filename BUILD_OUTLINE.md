@@ -85,7 +85,7 @@ Revisit only if users want to push a board into an actual repo.
 Code: `src/spec/buildSpec.ts` (pure, unit-tested in `buildSpec.test.ts`).
 
 1. **Sections.** Notes you assigned to a named section (select them → type a
-   name in the bottom bar → Assign) form that section wherever they are.
+   name in the bar above them → Assign) form that section wherever they are.
    Notes also given a subsection form a `###` part of that section.
    Every other note is grouped by proximity: edges within 60 px are chained
    into one section (so a row of stickies is one group). Overlap counts, so

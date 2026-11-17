@@ -11,11 +11,11 @@
  * Shift-click shapes to select; drag a selected shape to move the whole
  * selection. Middle mouse or Space+drag pans, wheel scrolls, Ctrl/⌘+wheel zooms
  * in 25% steps. Double-click empty space for a sticky, double-click a shape to
- * edit its text. With shapes selected, the bottom bar assigns them to a named
+ * edit its text. With shapes selected, a bar just above them assigns them to a named
  * section. Delete removes the selection; ⌘Z / ⇧⌘Z undo/redo; ⌘A selects all.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { getUserColor } from 'deepspace'
 import {
   ArrowUpRight,
@@ -415,6 +415,16 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     })
   }
 
+  // Viewport size, so the selection bar can stay on screen.
+  const [viewSize, setViewSize] = useState({ width: 0, height: 0 })
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setViewSize({ width: el.clientWidth, height: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // ── Wheel (needs a non-passive listener to preventDefault) ─────────────
 
   useEffect(() => {
@@ -685,9 +695,15 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </span>
       </div>
 
-      {canWrite && selectedNotes.length > 0 && !editingId && (
+      {canWrite && selectedNotes.length > 0 && !editingId && tool === 'select' && (
         <SelectionBar
           key={selectedNotes.map((x) => x.id).join(',')}
+          anchor={{
+            left: cam.x + Math.min(...selectedNotes.map((x) => x.x)) * cam.zoom,
+            top: cam.y + Math.min(...selectedNotes.map((x) => x.y)) * cam.zoom,
+            bottom: cam.y + Math.max(...selectedNotes.map((x) => x.y + x.height)) * cam.zoom,
+          }}
+          view={viewSize}
           shapes={selectedNotes}
           sectionNames={sectionNames}
           onAssign={(name, sub) => assignSection(name, sub)}
@@ -1158,7 +1174,14 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
  * shapes to it (they become one section in the export, wherever they sit),
  * remove them from their section, or delete them.
  */
+/** Space between the selection and the bar: clears the section tag drawn above a note. */
+const BAR_GAP = 28
+/** Keep the bar below the toolbar row. */
+const BAR_MIN_TOP = 72
+
 function SelectionBar({
+  anchor,
+  view,
   shapes,
   sectionNames,
   onAssign,
@@ -1166,6 +1189,10 @@ function SelectionBar({
   onRestyle,
   onDelete,
 }: {
+  /** The selection's on-screen left edge, top and bottom (viewport px). */
+  anchor: { left: number; top: number; bottom: number }
+  /** Viewport size, to keep the bar on screen. */
+  view: { width: number; height: number }
   shapes: BoardShape[]
   /** Section name → subsection names already used in it. */
   sectionNames: Map<string, string[]>
@@ -1175,6 +1202,23 @@ function SelectionBar({
   onDelete: () => void
 }) {
   const [colorsOpen, setColorsOpen] = useState(false)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
+  const above = anchor.top - BAR_GAP - size.height
+  const below = above < BAR_MIN_TOP
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
+  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
+  const left = clamp(anchor.left, 16, view.width - size.width - 16)
   const current = new Set(shapes.map(sectionNameOf))
   const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
@@ -1187,9 +1231,13 @@ function SelectionBar({
   const field = 'h-8 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50'
   return (
     <div
+      ref={barRef}
       data-testid="selection-bar"
-      className="absolute bottom-4 left-4 z-20 flex max-w-[calc(100%-13rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      data-placement={below ? 'below' : 'above'}
+      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      style={{ left, top }}
       onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
         {shapes.length} selected
@@ -1269,7 +1317,7 @@ function SelectionBar({
       >
         <Palette className="size-3.5" /> Color
       </button>
-      {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} />}
+      {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"
@@ -1292,7 +1340,10 @@ function SelectionBar({
 function ColorPanel({
   shapes,
   onRestyle,
+  below,
 }: {
+  /** The bar sits below the selection: open downward, away from it. */
+  below: boolean
   shapes: BoardShape[]
   onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
 }) {
@@ -1314,7 +1365,7 @@ function ColorPanel({
   return (
     <div
       data-testid="color-panel"
-      className="absolute bottom-full left-0 mb-2 flex flex-col gap-1.5 border border-foreground bg-background p-2 shadow-[4px_4px_0_0_#000]"
+      className={cn('absolute left-0 flex flex-col', below ? 'top-full mt-2' : 'bottom-full mb-2', 'gap-1.5 border border-foreground bg-background p-2 shadow-[4px_4px_0_0_#000]')}
     >
       {rows.map((row) => (
         <div key={row.key} className="flex items-center gap-1" role="group" aria-label={row.label}>
