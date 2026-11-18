@@ -14,6 +14,7 @@ import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useBoard } from '@/components/board/useBoard'
 import { CallRail } from '@/components/call/CallRail'
 import { ShareMenu } from '@/components/sharing/ShareMenu'
+import { BoardTimer } from '@/components/timer/BoardTimer'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
@@ -53,6 +54,7 @@ export default function BoardPage() {
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
         {user && <ShareMenu boardId={board.recordId} userId={user.id} isOwner={board.data.ownerId === user.id} />}
+        {user && <BoardTimer key={board.recordId} boardId={board.recordId} />}
       </header>
       <BoardWorkspace
         key={board.recordId}
