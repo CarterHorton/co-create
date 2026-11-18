@@ -14,9 +14,11 @@ export const specsSchema: CollectionSchema = {
     { name: 'markdown', storage: 'text', interpretation: 'plain', required: true },
     { name: 'authorName', storage: 'text', interpretation: 'plain' },
   ],
+  // Visible only to people on the board (see team_members in sharing-schema.ts).
+  teamField: 'boardId',
   permissions: {
-    viewer: { read: true, create: false, update: false, delete: false },
-    member: { read: true, create: true, update: false, delete: 'own' },
-    admin: { read: true, create: true, update: false, delete: true },
+    viewer: { read: 'team', create: false, update: false, delete: false },
+    member: { read: 'team', create: true, update: false, delete: 'own' },
+    admin: { read: 'team', create: true, update: false, delete: true },
   },
 }

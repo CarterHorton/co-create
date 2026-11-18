@@ -16,9 +16,11 @@ export const versionsSchema: CollectionSchema = {
     { name: 'shapeCount', storage: 'number', interpretation: 'plain' },
     { name: 'snapshot', storage: 'text', interpretation: { kind: 'json' }, required: true },
   ],
+  // Visible only to people on the board (see team_members in sharing-schema.ts).
+  teamField: 'boardId',
   permissions: {
-    viewer: { read: true, create: false, update: false, delete: false },
-    member: { read: true, create: true, update: false, delete: false },
-    admin: { read: true, create: true, update: false, delete: true },
+    viewer: { read: 'team', create: false, update: false, delete: false },
+    member: { read: 'team', create: true, update: false, delete: false },
+    admin: { read: 'team', create: true, update: false, delete: true },
   },
 }

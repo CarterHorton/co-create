@@ -43,6 +43,60 @@ function wsRoute(
   }
 }
 
+/**
+ * Boards are private: the owner and the people it was sent to (team_members
+ * rows with teamId = boardId) may open its canvas and presence rooms.
+ * Fails closed on any lookup error or unknown board.
+ */
+async function execAsOwner(env: Env, tool: string, params: Record<string, unknown>): Promise<unknown> {
+  const stub = env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
+  const res = await stub.fetch(
+    new Request('https://internal/api/tools/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': env.OWNER_USER_ID, 'X-App-Action': 'true' },
+      body: JSON.stringify({ tool, params }),
+    }),
+  )
+  return res.json()
+}
+
+export async function canAccessBoard(env: Env, boardId: string, userId: string): Promise<boolean> {
+  try {
+    const board = (await execAsOwner(env, 'records.get', { collection: 'boards', recordId: boardId })) as {
+      success?: boolean
+      data?: { record?: { data?: { ownerId?: string } } }
+    }
+    const ownerId = board.success ? board.data?.record?.data?.ownerId : undefined
+    if (!ownerId) return false
+    if (ownerId === userId) return true
+    const members = (await execAsOwner(env, 'records.query', {
+      collection: 'team_members',
+      where: { teamId: boardId, userId },
+      limit: 1,
+    })) as { success?: boolean; data?: { records?: unknown[] } }
+    return !!members.success && (members.data?.records?.length ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
+/** Wrap a ws route so it only connects signed-in users who can open the board. */
+function boardGated(
+  boardIdOf: (id: string) => string | null,
+  inner: (c: Context<AppContext>) => Promise<Response>,
+) {
+  return async (c: Context<AppContext>) => {
+    const id = c.req.param('roomId') ?? c.req.param('docId') ?? c.req.param('scopeId') ?? ''
+    const boardId = boardIdOf(id)
+    if (boardId === null) return inner(c)
+    const token = new URL(c.req.url).searchParams.get('token')
+    const auth = token ? (await verifyJwt(jwtConfig(c.env), token)).result : null
+    if (!auth) return new Response('Unauthorized', { status: 401 })
+    if (!(await canAccessBoard(c.env, boardId, auth.userId))) return new Response('Forbidden', { status: 403 })
+    return inner(c)
+  }
+}
+
 type DocsYjsRole = 'admin' | 'member' | 'viewer'
 
 interface DocumentRecordForAccess {
@@ -142,17 +196,25 @@ export function registerRealtimeRoutes(app: Hono<AppContext>): void {
     return stub.fetch(roomRequest)
   })
 
+  // Every canvas room is a board.
   app.get(
     '/ws/canvas/:docId',
-    wsRoute(
-      (env) => env.CANVAS_ROOMS,
-      async (auth, env) => ({ role: await resolveAppRole(env, auth.userId) }),
+    boardGated(
+      (id) => id,
+      wsRoute(
+        (env) => env.CANVAS_ROOMS,
+        async (auth, env) => ({ role: await resolveAppRole(env, auth.userId) }),
+      ),
     ),
   )
 
+  // Presence scopes named `board:<id>` follow the board's access.
   app.get(
     '/ws/presence/:scopeId',
-    wsRoute((env) => env.PRESENCE_ROOMS),
+    boardGated(
+      (id) => (id.startsWith('board:') ? id.slice('board:'.length) : null),
+      wsRoute((env) => env.PRESENCE_ROOMS),
+    ),
   )
 
   app.get(

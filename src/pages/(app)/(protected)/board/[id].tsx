@@ -12,6 +12,7 @@ import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useBoard } from '@/components/board/useBoard'
 import { CallRail } from '@/components/call/CallRail'
+import { ShareMenu } from '@/components/sharing/ShareMenu'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
@@ -34,7 +35,7 @@ export default function BoardPage() {
   if (!board) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">This board doesn&apos;t exist or was deleted.</p>
+        <p className="text-muted-foreground">This board doesn&apos;t exist, was deleted, or hasn&apos;t been shared with you.</p>
         <Link to="/home" className="font-bold underline underline-offset-4">
           Back to boards
         </Link>
@@ -50,6 +51,7 @@ export default function BoardPage() {
           <ArrowLeft className="size-4" />
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
+        {user && <ShareMenu boardId={board.recordId} userId={user.id} isOwner={board.data.ownerId === user.id} />}
       </header>
       <BoardWorkspace
         key={board.recordId}

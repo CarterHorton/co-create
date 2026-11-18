@@ -1,6 +1,7 @@
 /**
- * Boards — the signed-in home. Lists every whiteboard, creates new ones, and
- * opens /board/:id. Signed-out visitors get a sign-in prompt instead.
+ * Boards — the signed-in home. Lists your boards and the ones friends sent
+ * you (boards are private until sent), creates new ones, manages your party,
+ * and opens /board/:id. Signed-out visitors get a sign-in prompt instead.
  */
 
 import { useState, type FormEvent } from 'react'
@@ -8,6 +9,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, useMutations, useQuery, ROLES } from 'deepspace'
 import { ArrowRight, Trash2 } from 'lucide-react'
 import { Button, Input, useToast } from '@/components/ui'
+import { PartyPanel } from '@/components/sharing/PartyPanel'
 
 interface Board {
   title: string
@@ -76,6 +78,8 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
     <div data-testid="boards-page" className="mx-auto max-w-4xl px-6 py-12">
       <h1 className="mb-8 font-display text-4xl font-black tracking-[-0.02em]">Boards</h1>
 
+      <PartyPanel userId={userId} />
+
       {canCreate && (
         <form onSubmit={onCreate} className="mb-10 flex gap-2">
           <Input
@@ -95,7 +99,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
         <p className="text-sm text-muted-foreground">Loading boards…</p>
       ) : boards.length === 0 ? (
         <div className="border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          No boards yet. Name one above to start.
+          No boards yet. Name one above to start, or ask a friend to send you one.
         </div>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -112,7 +116,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
                     <h2 className="truncate font-bold">{b.data.title}</h2>
                     <p className="mt-1 font-mono text-xs text-muted-foreground">
                       {new Date(b.createdAt).toLocaleDateString()}
-                      {mine && ' · yours'}
+                      {mine ? ' · yours' : ' · shared with you'}
                     </p>
                   </div>
                   <ArrowRight className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
