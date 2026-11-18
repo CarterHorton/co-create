@@ -42,9 +42,13 @@ test('removing a friend revokes boards between you, and a new code re-adds them'
   await expect(a.page.getByText(`${bName} removed from your party`)).toBeVisible({ timeout: 15_000 })
   await expect(dialog).toBeHidden()
 
-  // Gone from both parties (B's updates live), and B lost the board.
+  // Gone from both parties (B's party list updates live), and B lost the
+  // board. Like the revoke test in sharing.spec.ts, B reloads first: an
+  // already-open board list doesn't drop a revoked board until it refetches.
   await expect(removeB).toHaveCount(0, { timeout: 15_000 })
   await expect(removeAFromB).toHaveCount(0, { timeout: 15_000 })
+  await b.page.goto('/home')
+  await expect(b.page.getByTestId('boards-page')).toBeVisible({ timeout: 15_000 })
   await expect(b.page.getByTestId(`board-card-${boardId}`)).toHaveCount(0, { timeout: 15_000 })
   await b.page.goto(boardUrl)
   await expect(b.page.getByText(/hasn.t been shared with you/)).toBeVisible({ timeout: 15_000 })
