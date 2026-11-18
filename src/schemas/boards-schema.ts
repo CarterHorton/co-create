@@ -28,6 +28,10 @@ export const boardsSchema: CollectionSchema = {
     { name: 'teamId', storage: 'text', interpretation: 'plain' },
     /** Bumped on every share/revoke so live board lists re-check access. */
     { name: 'accessVersion', storage: 'number', interpretation: 'plain' },
+    /** Owner's project (src/schemas/projects-schema.ts); '' or missing = none. Set via actions. */
+    { name: 'projectId', storage: 'text', interpretation: 'plain' },
+    /** Archived boards only show in the Archived view. Set via the boardArchive action. */
+    { name: 'archived', storage: 'number', interpretation: { kind: 'boolean' } },
   ],
   ownerField: 'ownerId',
   teamField: 'teamId',
