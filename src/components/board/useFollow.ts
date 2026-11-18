@@ -108,8 +108,12 @@ export function useFollow({ presence, cam, setCam, viewSize, say }: Options): Fo
 
   // ── Following ──────────────────────────────────────────────────────────
   const [following, setFollowing] = useState<{ userId: string; userName: string } | null>(null)
-  /** The last camera this hook set; any other camera means the user moved it. */
-  const applied = useRef<Camera | null>(null)
+  /**
+   * Cameras this hook set. React can render a tick or two behind the frame loop,
+   * so the camera we see may be an earlier one of ours, not the latest: only a
+   * camera NOT in this set means the user moved it.
+   */
+  const applied = useRef<WeakSet<Camera> | null>(null)
   const followingRef = useRef(following)
   useEffect(() => {
     followingRef.current = following
@@ -157,7 +161,7 @@ export function useFollow({ presence, cam, setCam, viewSize, say }: Options): Fo
         const cur = camRef.current
         const next = prefersReducedMotion() ? target : approachCamera(cur, target, dt, screen)
         if (next.x !== cur.x || next.y !== cur.y || next.zoom !== cur.zoom) {
-          applied.current = next
+          ;(applied.current ??= new WeakSet()).add(next)
           camRef.current = next
           setCam(next)
         }
@@ -170,7 +174,7 @@ export function useFollow({ presence, cam, setCam, viewSize, say }: Options): Fo
 
   // Our own pan / zoom (a camera this hook didn't set) takes the view back.
   useEffect(() => {
-    if (followingId && applied.current && cam !== applied.current) stop()
+    if (followingId && applied.current && !applied.current.has(cam)) stop()
   }, [cam, followingId, stop])
 
   // They left.
