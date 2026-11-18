@@ -64,6 +64,8 @@ const boardDelete: ActionHandler<Env> = async ({ userId, params, tools, env }) =
     const specs = await drain(tools, 'specs', { boardId })
     await drain(tools, 'board_timers', { boardId })
     await drainBoardProjectData(tools, boardId)
+    // View-only share links (src/actions/links.ts) die with the board.
+    await drain(tools, 'board_links', { boardId })
     // Access rows go after the content they guard and before the board row,
     // so a retry still finds the board and its owner.
     const members = await drain(tools, 'team_members', { teamId: boardId })

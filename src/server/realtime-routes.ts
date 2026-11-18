@@ -11,6 +11,7 @@ import type { Context, Hono } from 'hono'
 import { authenticatedRoomRequest, resolveAppRole, verifyJwt } from 'deepspace/worker'
 import type { JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import type { AppContext, Env } from '../../worker.js'
+import { canvasRoleFor } from './board-role.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -18,7 +19,7 @@ function jwtConfig(env: Env): JwtVerifierConfig {
 
 function wsRoute(
   doNamespace: (env: Env) => DurableObjectNamespace,
-  extraIdentity?: (auth: VerifyResult, env: Env) => { role?: string } | Promise<{ role?: string }>,
+  extraIdentity?: (auth: VerifyResult, env: Env, id: string) => { role?: string } | Promise<{ role?: string }>,
 ) {
   return async (c: Context<AppContext>) => {
     const id = c.req.param('roomId') ?? c.req.param('docId') ?? c.req.param('scopeId')
@@ -34,7 +35,7 @@ function wsRoute(
     const roomRequest = authenticatedRoomRequest(
       c.req.raw,
       auth,
-      auth ? await extraIdentity?.(auth, c.env) : undefined,
+      auth ? await extraIdentity?.(auth, c.env, id) : undefined,
     )
 
     const namespace = doNamespace(c.env)
@@ -77,6 +78,29 @@ export async function canAccessBoard(env: Env, boardId: string, userId: string):
     return !!members.success && (members.data?.records?.length ?? 0) > 0
   } catch {
     return false
+  }
+}
+
+/**
+ * The caller's `team_members` role on a board ('owner', 'editor', 'viewer'),
+ * 'owner' for the board's owner, or null without a row. Fails closed (null).
+ */
+export async function boardMemberRole(env: Env, boardId: string, userId: string): Promise<string | null> {
+  try {
+    const board = (await execAsOwner(env, 'records.get', { collection: 'boards', recordId: boardId })) as {
+      success?: boolean
+      data?: { record?: { data?: { ownerId?: string } } }
+    }
+    if (board.success && board.data?.record?.data?.ownerId === userId) return 'owner'
+    const members = (await execAsOwner(env, 'records.query', {
+      collection: 'team_members',
+      where: { teamId: boardId, userId },
+      limit: 1,
+    })) as { success?: boolean; data?: { records?: { data?: { role?: string } }[] } }
+    const row = members.success ? members.data?.records?.[0] : undefined
+    return row ? (row.data?.role ?? 'editor') : null
+  } catch {
+    return null
   }
 }
 
@@ -203,7 +227,11 @@ export function registerRealtimeRoutes(app: Hono<AppContext>): void {
       (id) => id,
       wsRoute(
         (env) => env.CANVAS_ROOMS,
-        async (auth, env) => ({ role: await resolveAppRole(env, auth.userId) }),
+        // Link viewers (team_members role 'viewer') get a read-only socket:
+        // CanvasRoom refuses every write message from the 'viewer' role.
+        async (auth, env, boardId) => ({
+          role: canvasRoleFor(await resolveAppRole(env, auth.userId), await boardMemberRole(env, boardId, auth.userId)),
+        }),
       ),
     ),
   )

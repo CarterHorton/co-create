@@ -77,7 +77,8 @@ type Caller = { name: string } | ActionResult
 
 /**
  * May `userId` write history/specs for `boardId`? Owner, or an active
- * team_members row for the board, and not a viewer. Admins get no bypass.
+ * team_members row for the board, and not a viewer (neither app role nor
+ * board role). Admins get no bypass.
  * Missing and forbidden boards get the same answer.
  */
 async function authorizeBoardWriter(tools: ActionTools, userId: string, boardId: string): Promise<Caller> {
@@ -91,12 +92,13 @@ async function authorizeBoardWriter(tools: ActionTools, userId: string, boardId:
   if (!board.success) return denied
   let allowed = board.data.record.data.ownerId === userId
   if (!allowed) {
-    const res = await tools.query<{ teamId: string; userId: string; status?: string }>('team_members', {
+    const res = await tools.query<{ teamId: string; userId: string; status?: string; role?: string }>('team_members', {
       where: { teamId: boardId, userId },
       limit: 5,
     })
     if (!res.success) return fail(res.error)
-    allowed = res.data.records.some((r) => !r.data.status || r.data.status === 'active')
+    // Link viewers (role 'viewer', src/actions/links.ts) can read the board but not write to it.
+    allowed = res.data.records.some((r) => (!r.data.status || r.data.status === 'active') && r.data.role !== 'viewer')
   }
   if (!allowed) return denied
   return { name: user?.name || user?.email || 'Someone' }

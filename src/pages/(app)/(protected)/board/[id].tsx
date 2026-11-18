@@ -15,6 +15,7 @@ import { useBoard } from '@/components/board/useBoard'
 import { CallRail } from '@/components/call/CallRail'
 import { ShareMenu } from '@/components/sharing/ShareMenu'
 import { BoardTimer } from '@/components/timer/BoardTimer'
+import { ViewOnlyBadge } from '@/components/sharing/ViewOnlyBadge'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
@@ -53,6 +54,7 @@ export default function BoardPage() {
           <ArrowLeft className="size-4" />
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
+        {user && <ViewOnlyBadge boardId={board.recordId} userId={user.id} />}
         {user && <ShareMenu boardId={board.recordId} userId={user.id} isOwner={board.data.ownerId === user.id} />}
         {user && <BoardTimer key={board.recordId} boardId={board.recordId} />}
       </header>
@@ -94,7 +96,7 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             title={exportTitle}
             presence={presence}
             statusLabel={v.preview ? 'Viewing past version' : undefined}
-            publisher={publisher}
+            publisher={store.canWrite ? publisher : undefined}
           />
         </div>
       </div>
