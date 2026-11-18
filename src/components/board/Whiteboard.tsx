@@ -65,6 +65,7 @@ import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } fr
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import { kindName, panToShow, readingOrder, shapeName } from './a11y'
+import { CommentButton, CommentsLayer, useCommentsBridge, type CommentsBridge } from '@/comments/WhiteboardComments'
 import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
 import { LiveRegion, useAnnouncer } from './LiveRegion'
 import { useFollow } from './useFollow'
@@ -176,11 +177,13 @@ interface WhiteboardProps {
   publisher?: SpecPublisher
   /** Voting on sticky notes (signed-in boards; omit in guest mode and history previews). */
   votes?: BoardVoting
+  /** Comment badges, the Comment action and panning to threads (signed-in boards). */
+  comments?: CommentsBridge
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel, publisher, votes }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher, votes, comments }: WhiteboardProps) {
   const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
@@ -294,6 +297,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
   const activeId = editingId ?? (selectedSet.size === 1 ? [...selectedSet][0] : null)
   const active = activeId ? byId.get(activeId) : undefined
   const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
+  useCommentsBridge(comments, { active: editingId ? undefined : active, byId, focusShape })
   const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
   /** Section names on the board → the subsection names used in each (first spelling wins). */
   const sectionNames = useMemo(() => {
@@ -1064,6 +1068,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
           onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
           onNoteType={setNoteType}
+          actions={
+            comments && selectedNotes.length === 1 ? (
+              <CommentButton onClick={() => comments.onComment(selectedNotes[0].id, shapeName(selectedNotes[0], byId))} />
+            ) : undefined
+          }
           extra={votes && voteTarget && <VoteButton shapeId={voteTarget.id} votes={votes} />}
         />
       )}
@@ -1154,6 +1163,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
         arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
         it. Y changes the selected sticky notes' type: idea, question, decision or risk.
         {votes && ' U votes for the selected sticky note, or removes your vote.'}
+        {comments && ' M comments on the selected sticky note.'}
         {' '}D then Enter adds a database table; Enter on a table edits its fields, and Enter on an arrow between two tables sets its cardinality.
       </p>
 
@@ -1326,6 +1336,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
           })}
         </div>
       </div>
+
+      {comments && (
+        <CommentsLayer
+          bridge={comments}
+          cam={cam}
+          view={viewSize}
+          shapes={shapes}
+          byId={byId}
+          active={active}
+          showBar={!canWrite && !editingId && tool === 'select' && selectedSet.size === 1}
+        />
+      )}
 
       {connectSource && (
         <ConnectMenu
@@ -1761,6 +1783,7 @@ function SelectionBar({
   onRestyle,
   onDelete,
   onNoteType,
+  actions,
   extra,
 }: {
   /** The selection's on-screen left edge, top and bottom (viewport px). */
@@ -1777,6 +1800,8 @@ function SelectionBar({
   onNoteType: (t: NoteType) => void
   /** More controls, after the count (e.g. voting). */
   extra?: ReactNode
+  /** More actions, before Delete (e.g. Comment). */
+  actions?: ReactNode
 }) {
   const [colorsOpen, setColorsOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
@@ -1897,6 +1922,7 @@ function SelectionBar({
       </button>
       {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
       <NoteTypePicker shapes={shapes} onPick={onNoteType} />
+      {actions}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"

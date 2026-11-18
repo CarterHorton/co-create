@@ -23,6 +23,7 @@ import { LiveRegion } from '@/components/board/LiveRegion'
 import { useBoardVotes } from '@/votes/useBoardVotes'
 import { VotesPanel } from '@/votes/VotesPanel'
 import { useTemplateSeed } from '@/templates/seed'
+import { useBoardComments } from '@/comments/useBoardComments'
 
 interface Board {
   title: string
@@ -90,6 +91,7 @@ function BoardWorkspace({
 }) {
   const store = useBoard(boardId)
   useTemplateSeed(boardId, store)
+  const comments = useBoardComments({ boardId, userId: userId ?? '', isOwner, shapes: store.shapes })
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
@@ -118,11 +120,13 @@ function BoardWorkspace({
             statusLabel={v.preview ? 'Viewing past version' : undefined}
             publisher={store.canWrite ? publisher : undefined}
             votes={v.preview ? undefined : votes}
+            comments={v.preview ? undefined : comments.bridge}
           />
           <LiveRegion message={votes.announcement} testId="votes-announcer" />
         </div>
       </div>
       <BoardSidebar
+        select={comments.select}
         panes={[
           { id: 'call', label: 'Call', content: <CallRail boardId={boardId} displayName={userName} /> },
           {
@@ -140,6 +144,7 @@ function BoardWorkspace({
             closable: true,
             Icon: ThumbsUp,
           },
+          comments.pane,
         ]}
       />
     </div>

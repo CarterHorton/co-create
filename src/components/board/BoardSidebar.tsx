@@ -23,9 +23,26 @@ export interface SidebarPane {
   Icon?: LucideIcon
 }
 
-export function BoardSidebar({ panes, initial }: { panes: SidebarPane[]; initial?: string }) {
+export function BoardSidebar({
+  panes,
+  initial,
+  select,
+}: {
+  panes: SidebarPane[]
+  initial?: string
+  /** Show (and reopen) this pane; a new object each time it should happen again. */
+  select?: { id: string } | null
+}) {
   const [active, setActive] = useState(initial ?? panes[0]?.id)
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
+  const [seenSelect, setSeenSelect] = useState(select)
+  if (select !== seenSelect) {
+    setSeenSelect(select)
+    if (select) {
+      setActive(select.id)
+      if (closed.has(select.id)) setClosed((prev) => new Set([...prev].filter((id) => id !== select.id)))
+    }
+  }
   const open = panes.filter((p) => !closed.has(p.id))
   const shut = panes.filter((p) => closed.has(p.id))
   // If the active pane was closed, fall back to the first one still open.
