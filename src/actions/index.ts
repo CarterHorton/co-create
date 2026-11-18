@@ -6,6 +6,7 @@ import { historyActions } from './history'
 import { timerActions } from './timer'
 import { projectActions } from './projects'
 import { linkActions } from './links'
+import { voteActions } from './votes'
 
 export const actions: Record<string, ActionHandler<Env>> = {
   ...boardActions,
@@ -14,4 +15,5 @@ export const actions: Record<string, ActionHandler<Env>> = {
   ...timerActions,
   ...projectActions,
   ...linkActions,
+  ...voteActions,
 }

@@ -35,6 +35,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react'
 import { getUserColor } from 'deepspace'
 import {
@@ -90,6 +91,8 @@ import { Frame as FrameIcon } from 'lucide-react'
 import { FRAME_CLASS, FRAME_EDITOR_CLASS, FRAME_TITLE_CLASS, UNTITLED_FRAME, contains, isFrame, withFrameContents } from './frame'
 import { NOTE_TYPES, cycleNoteType, type NoteType } from './noteTypes'
 import { NoteTypeBadge, NoteTypePicker } from './NoteTypeControls'
+import type { BoardVoting } from '@/votes/useBoardVotes'
+import { VoteBadges, VoteBar, VoteButton } from '@/votes/VoteControls'
 
 type Tool = 'select' | ShapeKind
 interface Camera {
@@ -166,11 +169,13 @@ interface WhiteboardProps {
   statusLabel?: string
   /** Lets the export dialog publish the spec for agents (signed-in boards). */
   publisher?: SpecPublisher
+  /** Voting on sticky notes (signed-in boards; omit in guest mode and history previews). */
+  votes?: BoardVoting
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher, votes }: WhiteboardProps) {
   const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
@@ -794,6 +799,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         const stickies = [...selectedSet].map((id) => shapes.find((s) => s.id === id)).filter((s) => s?.type === 'sticky')
         if (stickies.length) return setNoteTypeRef.current(cycleNoteType(stickies as BoardShape[]))
       }
+      if (k === keyOf('vote') && votes && active?.type === 'sticky') return void votes.toggle(active.id)
       if (e.key === '+' || e.key === '=') return zoomAtCenter(1)
       if (e.key === '-' || e.key === '_') return zoomAtCenter(-1)
       if (e.key === '0') return setCam({ x: 0, y: 0, zoom: 1 })
@@ -810,7 +816,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter])
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter, votes])
+
+  // "Top voted" (Votes pane) asks to show a note: select it, pan to it, focus it.
+  const revealSub = votes?.onReveal
+  useEffect(() => {
+    if (!revealSub) return
+    return revealSub((id) => {
+      const s = byId.get(id)
+      if (!s) return
+      setSelected([id])
+      keepInView(s)
+      focusShape(id)
+    })
+  }, [revealSub, byId, keepInView, focusShape])
 
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
@@ -878,6 +897,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     e.currentTarget.scrollLeft = 0
   }
   const connectSource = connectFrom ? byId.get(connectFrom) : undefined
+  /** The one selected sticky note the vote button acts on. */
+  const voteTarget = selectedNotes.length === 1 && selectedNotes[0].type === 'sticky' ? selectedNotes[0] : null
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-background" onScroll={noScroll}>
@@ -1036,6 +1057,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
           onNoteType={setNoteType}
+          extra={votes && voteTarget && <VoteButton shapeId={voteTarget.id} votes={votes} />}
+        />
+      )}
+      {/* People who can't edit get no selection bar, but can still vote. */}
+      {!canWrite && votes && voteTarget && !editingId && (
+        <VoteBar
+          shapeId={voteTarget.id}
+          votes={votes}
+          anchor={{
+            left: cam.x + voteTarget.x * cam.zoom,
+            top: cam.y + voteTarget.y * cam.zoom,
+            bottom: cam.y + (voteTarget.y + voteTarget.height) * cam.zoom,
+          }}
+          view={viewSize}
         />
       )}
 
@@ -1075,6 +1110,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
         arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
         it. Y changes the selected sticky notes' type: idea, question, decision or risk.
+        {votes && ' U votes for the selected sticky note, or removes your vote.'}
       </p>
 
       {/* Viewport */}
@@ -1192,7 +1228,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               arrowSource={s.id === arrowFrom}
               editing={s.id === editingId}
               canWrite={canWrite}
-              label={shapeName(s, byId)}
+              label={shapeName(s, byId) + (votes?.labelSuffix(s.id) ?? '')}
               tabbable={s.id === rovingId}
               onFocus={() => onShapeFocus(s)}
               onKeyDown={(e) => onShapeKeyDown(e, s)}
@@ -1208,6 +1244,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               }}
             />
           ))}
+
+          {votes && <VoteBadges shapes={boxes} votes={votes} />}
 
           {marquee && (
             <div
@@ -1261,7 +1299,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       )}
 
       {exportOpen && (
-        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} />
+        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} voteCounts={votes?.specCounts} />
       )}
     </div>
   )
@@ -1675,6 +1713,7 @@ function SelectionBar({
   onRestyle,
   onDelete,
   onNoteType,
+  extra,
 }: {
   /** The selection's on-screen left edge, top and bottom (viewport px). */
   anchor: { left: number; top: number; bottom: number }
@@ -1688,6 +1727,8 @@ function SelectionBar({
   onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
   onDelete: () => void
   onNoteType: (t: NoteType) => void
+  /** More controls, after the count (e.g. voting). */
+  extra?: ReactNode
 }) {
   const [colorsOpen, setColorsOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
@@ -1730,6 +1771,7 @@ function SelectionBar({
       <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
         {shapes.length} selected
       </span>
+      {extra}
       <form
         className="flex flex-wrap items-center gap-1"
         onSubmit={(e) => {

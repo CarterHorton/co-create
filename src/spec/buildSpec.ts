@@ -24,6 +24,8 @@ export interface SpecOptions {
   gap?: number
   /** Export timestamp; injectable for tests. */
   now?: Date
+  /** Vote counts by shape id: written as "(3 votes)" after each voted note. */
+  votes?: ReadonlyMap<string, number>
 }
 
 export interface SpecNote {
@@ -476,6 +478,9 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     const count = (i: { loop: boolean }) => (i.loop ? loopN++ : forwardN++)
 
     body.push(`## ${s.index}. ${s.title}`, '')
+    // A note that became the section's title keeps its votes here (the heading text is its link anchor).
+    const titleVotes = s.titleShape ? (opts.votes?.get(s.titleShape.id) ?? 0) : 0
+    if (titleVotes > 0) body.push(`_${plural(titleVotes, 'vote')}_`, '')
     if (!s.assigned && sections.length > 1) {
       body.push("_Not named on the board: these notes are grouped because they sat close together._", '')
     }
@@ -499,7 +504,9 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
         written.forEach(count)
         // Loops go on the note's own line so they can't be mistaken for an option or part.
         const loops = written.filter((w) => w.loop).map((w) => w.text)
-        lines.push(`${pad}${marker} ${specPrefix(n.shape)}${n.head}${loops.length ? ` (${loops.join('; ')})` : ''}`)
+        const voteN = opts.votes?.get(n.shape.id) ?? 0
+        const voteTag = voteN > 0 ? ` (${plural(voteN, 'vote')})` : ''
+        lines.push(`${pad}${marker} ${specPrefix(n.shape)}${n.head}${voteTag}${loops.length ? ` (${loops.join('; ')})` : ''}`)
         const inner = pad + ' '.repeat(marker.length + 1)
         for (const item of n.items) lines.push(`${inner}- ${item}`)
         for (const k of p.L.childrenOf.get(n.shape.id) ?? []) render(noteById.get(k)!, inner, '-')
