@@ -38,6 +38,8 @@ import type { ActionResult, ActionTools, VerifyResult } from 'deepspace/worker'
 import { actions } from '../actions/index.js'
 import { integrations } from '../integrations.js'
 import type { AppContext, Env } from '../../worker.js'
+import { authorizeLivekitRequest, isLivekitIntegration } from './call-access.js'
+import { canAccessBoard } from './realtime-routes.js'
 
 type ResolveAuth = (req: Request, env: Env) => Promise<VerifyResult | null>
 
@@ -123,10 +125,27 @@ function createActionTools(env: Env, userId: string, callerJwt: string): ActionT
       headers['x-app-id'] = env.DEEPSPACE_APP_ID
     }
 
+    // LiveKit tokens are gated on board access here too (call-access.ts):
+    // an action passing client params through must not mint a call token.
+    let body = JSON.stringify(data ?? {})
+    if (isLivekitIntegration(integrationName)) {
+      const decision = await authorizeLivekitRequest({
+        appId: env.DEEPSPACE_APP_ID,
+        name: integrationName,
+        endpoint: target.endpoint,
+        method: 'POST',
+        body: data,
+        userId,
+        canAccessBoard: (boardId) => canAccessBoard(env, boardId, userId),
+      })
+      if (!decision.ok) return { success: false, code: 'forbidden', error: decision.error }
+      body = decision.body
+    }
+
     const res = await apiWorkerFetch(env, target.path, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data ?? {}),
+      body,
     })
     const payload = (await res.json()) as Record<string, unknown>
     if (!res.ok || payload.success === false) {

@@ -35,7 +35,11 @@ export interface CallParticipant {
   video?: VideoTrack
 }
 
-/** LiveKit room names are per platform project, so namespace by app. */
+/**
+ * LiveKit room names are per platform project, so namespace by app. The
+ * worker only mints tokens for exactly this shape (src/server/call-access.ts),
+ * and APP_ID is the build-injected DEEPSPACE_APP_ID it checks against.
+ */
 export const callRoomName = (boardId: string) => `${APP_ID}:board:${boardId}`
 
 const RERENDER_EVENTS = [
@@ -82,7 +86,10 @@ export function useCall(boardId: string, displayName?: string) {
         roomName: callRoomName(boardId),
         displayName,
       })
-      if (!res.success) throw new Error(res.error)
+      if (!res.success) {
+        // The worker refuses tokens for boards the caller cannot open.
+        throw new Error(res.status === 403 ? "You don't have access to this board's call" : res.error)
+      }
       const { token, url } = res.data as { token: string; url: string }
 
       for (const ev of RERENDER_EVENTS) r.on(ev, rerender)
