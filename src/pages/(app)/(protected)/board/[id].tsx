@@ -22,6 +22,7 @@ import { formatVersionTime, useVersioning } from '@/history/useVersioning'
 import { LiveRegion } from '@/components/board/LiveRegion'
 import { useBoardVotes } from '@/votes/useBoardVotes'
 import { VotesPanel } from '@/votes/VotesPanel'
+import { useTemplateSeed } from '@/templates/seed'
 
 interface Board {
   title: string
@@ -88,6 +89,7 @@ function BoardWorkspace({
   isOwner: boolean
 }) {
   const store = useBoard(boardId)
+  useTemplateSeed(boardId, store)
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })

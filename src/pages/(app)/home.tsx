@@ -11,6 +11,7 @@ import { Button, ConfirmModal, Input, useToast } from '@/components/ui'
 import { PartyPanel } from '@/components/sharing/PartyPanel'
 import { HomeBoards } from '@/components/home/HomeBoards'
 import { callAction } from '@/lib/actions'
+import { useTemplateChoice } from '@/templates/TemplatePicker'
 
 interface Board {
   title: string
@@ -62,6 +63,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const canCreate = role !== ROLES.VIEWER
+  const template = useTemplateChoice()
 
   /** Server-side so the board's versions, specs, access rows and canvas go too. */
   async function deleteBoard(boardId: string) {
@@ -83,6 +85,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
     setCreating(true)
     try {
       const id = await createConfirmed({ title: t, ownerId: userId })
+      template.queue(id)
       setTitle('')
       navigate(`/board/${id}`)
     } catch (err) {
@@ -107,6 +110,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
             placeholder="Name a new board — e.g. Onboarding redesign"
             className="flex-1"
           />
+          {template.element}
           <Button data-testid="board-create" type="submit" loading={creating} disabled={!title.trim()}>
             New board
           </Button>
