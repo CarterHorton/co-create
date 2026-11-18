@@ -31,6 +31,8 @@ import {
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import { integrations } from '../integrations.js'
 import type { AppContext, Env } from '../../worker.js'
+import { authorizeLivekitRequest, isLivekitIntegration } from './call-access.js'
+import { canAccessBoard } from './realtime-routes.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -269,7 +271,31 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     }
 
     const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
-    const body = hasBody ? await c.req.text() : undefined
+    let body = hasBody ? await c.req.text() : undefined
+
+    // A LiveKit token opens a board's call, so only a caller who can open the
+    // board gets one — see call-access.ts. The vetted body replaces the raw one.
+    if (isLivekitIntegration(integrationName)) {
+      let parsed: unknown
+      try {
+        parsed = body ? JSON.parse(body) : undefined
+      } catch {
+        parsed = undefined
+      }
+      const userId = auth?.userId ?? null
+      const decision = await authorizeLivekitRequest({
+        appId: c.env.DEEPSPACE_APP_ID,
+        name: integrationName,
+        endpoint: c.req.param('endpoint'),
+        method: c.req.method,
+        body: parsed,
+        userId,
+        canAccessBoard: (boardId) => (userId ? canAccessBoard(c.env, boardId, userId) : Promise.resolve(false)),
+      })
+      if (!decision.ok) return c.json({ error: decision.error }, decision.status)
+      body = decision.body
+      headers['Content-Type'] = 'application/json'
+    }
 
     try {
       const res = await apiWorkerFetch(c.env, target, {

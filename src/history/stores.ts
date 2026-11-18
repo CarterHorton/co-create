@@ -6,7 +6,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { useMutations, useQuery } from 'deepspace'
+import { useQuery } from 'deepspace'
+import { callAction } from '@/lib/actions'
 import type { SnapshotShape } from './diff'
 
 export interface Version {
@@ -43,13 +44,13 @@ export function useCloudHistory(boardId: string): HistoryStore {
     orderDir: 'desc',
     limit: HISTORY_LIMIT,
   })
-  const { createConfirmed } = useMutations<VersionRow>('versions')
-
+  // Created server-side so the board's access is checked (src/actions/history.ts);
+  // the author's name comes from the server's user record.
   const save = useCallback<HistoryStore['save']>(
-    async ({ snapshot, message, auto, authorName }) => {
-      await createConfirmed({ boardId, message, auto, authorName, shapeCount: snapshot.length, snapshot })
+    async ({ snapshot, message, auto }) => {
+      await callAction('versionCreate', { boardId, message, auto, snapshot })
     },
-    [boardId, createConfirmed],
+    [boardId],
   )
 
   const versions: Version[] = records.map((r) => ({

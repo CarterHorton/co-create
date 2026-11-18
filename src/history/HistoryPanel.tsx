@@ -24,7 +24,7 @@ export function HistoryPanel({ v, canWrite }: { v: Versioning; canWrite: boolean
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Describe this version (optional)"
             maxLength={500}
-            className="h-9 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50"
+            className="h-9 border border-input bg-background px-2 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           />
           <Button data-testid="history-save" type="submit" size="sm" loading={v.saving} disabled={!v.unsaved && !message.trim()}>
             <Save /> {v.unsaved ? 'Save version' : 'No unsaved changes'}

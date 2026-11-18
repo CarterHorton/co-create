@@ -16,9 +16,11 @@ export const specsSchema: CollectionSchema = {
   ],
   // Visible only to people on the board (see team_members in sharing-schema.ts).
   teamField: 'boardId',
+  // Rows are created only by the `specPublish` action (src/actions/history.ts), which
+  // checks the caller can open the board; a client create could name any boardId.
   permissions: {
     viewer: { read: 'team', create: false, update: false, delete: false },
-    member: { read: 'team', create: true, update: false, delete: 'own' },
-    admin: { read: 'team', create: true, update: false, delete: true },
+    member: { read: 'team', create: false, update: false, delete: 'own' },
+    admin: { read: 'team', create: false, update: false, delete: true },
   },
 }

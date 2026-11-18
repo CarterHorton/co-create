@@ -1,18 +1,37 @@
 /**
- * Party — your friends list. Show a friend code (valid 20 s) for someone else
- * to type in, or type in theirs. Once added, a friend stays.
+ * Party — your friends list. Show a friend code (valid 5 minutes) for someone
+ * else to type in, or type in theirs. A friend stays until either of you
+ * removes the other, which also takes back boards you'd sent each other.
+ *
+ * Timing is accessible (WCAG 2.2.1 / 4.1.3): the code lasts 5 minutes, a "New
+ * code" button appears once 30 s remain (and after expiry), and the visible
+ * m:ss countdown is hidden from screen readers. A polite live region speaks
+ * only the new code, "30 seconds left" and "Code expired".
  */
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useQuery } from 'deepspace'
-import { UserPlus } from 'lucide-react'
-import { Button, Input, useToast } from '@/components/ui'
+import { UserPlus, X } from 'lucide-react'
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  useToast,
+} from '@/components/ui'
 import { callAction } from '@/lib/actions'
+import { codeAnnouncement, formatCountdown, LOW_TIME_SECONDS } from './friendCode'
 import type { Friendship } from './types'
 
 interface IssuedCode {
   code: string
   expiresAt: number
+  ttlMs: number
 }
 
 /** 8 hex chars shown as XXXX-XXXX so they're easier to read out. */
@@ -42,15 +61,32 @@ export function PartyPanel({ userId }: { userId: string }) {
   const [issuing, setIssuing] = useState(false)
   const [entry, setEntry] = useState('')
   const [redeeming, setRedeeming] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<{ friendId: string; name: string } | null>(null)
+  const [removing, setRemoving] = useState(false)
   const secondsLeft = useSecondsLeft(issued?.expiresAt ?? null)
   const live = issued && secondsLeft > 0
+  const lowTime = live && secondsLeft <= LOW_TIME_SECONDS
+  const codeRef = useRef<HTMLSpanElement>(null)
+  const issueButtonRef = useRef<HTMLButtonElement>(null)
+  // The issue button goes away once a fresh code shows; if it had focus, hand
+  // focus to the new code rather than dropping it on the page body.
+  const focusCodeNext = useRef(false)
+
+  useEffect(() => {
+    if (issued && focusCodeNext.current) {
+      focusCodeNext.current = false
+      codeRef.current?.focus()
+    }
+  }, [issued])
 
   async function issue() {
+    const hadFocus = document.activeElement === issueButtonRef.current
     setIssuing(true)
     try {
-      const { code, expiresAt, ttlMs } = await callAction<IssuedCode & { ttlMs: number }>('friendCodeCreate')
+      const { code, expiresAt, ttlMs } = await callAction<IssuedCode>('friendCodeCreate')
       // Count down from this browser's clock, not the server's.
-      setIssued({ code, expiresAt: Date.now() + Math.min(ttlMs, Math.max(0, expiresAt - Date.now())) })
+      focusCodeNext.current = hadFocus
+      setIssued({ code, ttlMs, expiresAt: Date.now() + Math.min(ttlMs, Math.max(0, expiresAt - Date.now())) })
     } catch (e) {
       error('Could not make a code', (e as Error).message)
     } finally {
@@ -73,6 +109,20 @@ export function PartyPanel({ userId }: { userId: string }) {
     }
   }
 
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    setRemoving(true)
+    try {
+      await callAction('friendRemove', { friendId: pendingRemove.friendId })
+      success(`${pendingRemove.name} removed from your party`)
+      setPendingRemove(null)
+    } catch (err) {
+      error('Could not remove friend', (err as Error).message)
+    } finally {
+      setRemoving(false)
+    }
+  }
+
   return (
     <section data-testid="party-panel" className="mb-10 border border-border p-5">
       <div className="mb-4 flex items-center gap-2">
@@ -85,21 +135,45 @@ export function PartyPanel({ userId }: { userId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="mb-2 text-sm text-muted-foreground">Give a friend your code. It works once, for 20 seconds.</p>
-          {live ? (
-            <div className="flex items-center gap-3">
-              <span data-testid="friend-code" className="font-mono text-2xl font-black tracking-[0.2em]">
-                {formatCode(issued.code)}
-              </span>
-              <span data-testid="friend-code-timer" className="font-mono text-xs text-muted-foreground">
-                {secondsLeft}s
-              </span>
-            </div>
-          ) : (
-            <Button data-testid="friend-code-create" variant="outline" onClick={issue} loading={issuing}>
-              {issued ? 'Code expired — get a new one' : 'Get friend code'}
-            </Button>
-          )}
+          <p className="mb-2 text-sm text-muted-foreground">Give a friend your code. It works once, for 5 minutes.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            {live && (
+              <>
+                <span
+                  ref={codeRef}
+                  tabIndex={-1}
+                  data-testid="friend-code"
+                  className="font-mono text-2xl font-black tracking-[0.2em] outline-none"
+                >
+                  {formatCode(issued.code)}
+                </span>
+                {/* Visual only: ticking every second would flood screen readers. */}
+                <span
+                  data-testid="friend-code-timer"
+                  aria-hidden="true"
+                  className="font-mono text-xs tabular-nums text-muted-foreground"
+                >
+                  {formatCountdown(secondsLeft)}
+                </span>
+              </>
+            )}
+            {/* One button slot, so focus survives the switch from "New code" to "expired". */}
+            {(!live || lowTime) && (
+              <Button
+                ref={issueButtonRef}
+                data-testid="friend-code-create"
+                variant="outline"
+                size={live ? 'sm' : 'default'}
+                onClick={issue}
+                loading={issuing}
+              >
+                {live ? 'New code' : issued ? 'Code expired — get a new one' : 'Get friend code'}
+              </Button>
+            )}
+          </div>
+          <p data-testid="friend-code-status" role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {codeAnnouncement(issued, secondsLeft)}
+          </p>
         </div>
 
         <form onSubmit={redeem} className="flex items-start gap-2">
@@ -119,13 +193,54 @@ export function PartyPanel({ userId }: { userId: string }) {
 
       {status !== 'loading' && friends.length > 0 && (
         <ul data-testid="friend-list" className="mt-4 flex flex-wrap gap-2">
-          {friends.map((f) => (
-            <li key={f.recordId} className="border border-border px-2 py-1 text-sm">
-              {f.data.friendName || 'Friend'}
-            </li>
-          ))}
+          {friends.map((f) => {
+            const name = f.data.friendName || 'Friend'
+            return (
+              <li key={f.recordId} className="flex items-center gap-1 border border-border py-0.5 pl-2 pr-0.5 text-sm">
+                <span>{name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2"
+                  aria-label={`Remove ${name} from your party`}
+                  data-testid={`friend-remove-${f.data.friendId}`}
+                  onClick={() => setPendingRemove({ friendId: f.data.friendId, name })}
+                >
+                  <X className="size-3.5" aria-hidden="true" /> Remove
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       )}
+
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removing) setPendingRemove(null)
+        }}
+      >
+        <DialogContent data-testid="friend-remove-dialog">
+          <DialogHeader>
+            <DialogTitle>Remove {pendingRemove?.name} from your party?</DialogTitle>
+            <DialogDescription>
+              This also removes access to boards you've shared with each other: they lose the boards you sent them, and
+              you lose the boards they sent you. You can add each other again later with a new friend code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={removing} />}>Cancel</DialogClose>
+            <Button
+              variant="destructive"
+              data-testid="friend-remove-confirm"
+              loading={removing}
+              onClick={confirmRemove}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

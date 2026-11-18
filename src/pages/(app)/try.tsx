@@ -13,7 +13,7 @@ import { useLocalBoard } from '@/components/board/useLocalBoard'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useLocalHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
-import { Button } from '@/components/ui'
+import { Button, ConfirmModal } from '@/components/ui'
 
 export default function TryPage() {
   const board = useLocalBoard()
@@ -22,6 +22,7 @@ export default function TryPage() {
   const exportTitle = v.preview ? `${board.title} (version ${formatVersionTime(v.preview.createdAt)})` : board.title
   const { isSignedIn } = useAuthStatus()
   const [signIn, setSignIn] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   return (
     <div data-testid="try-page" className="flex h-full flex-col">
@@ -32,7 +33,7 @@ export default function TryPage() {
           aria-label="Board title"
           value={board.title}
           onChange={(e) => board.setTitle(e.target.value)}
-          className="min-w-0 max-w-xs flex-1 bg-transparent font-display text-lg font-black tracking-[-0.01em] outline-none focus-visible:underline"
+          className="min-w-0 max-w-xs flex-1 bg-transparent font-display text-lg font-black tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         />
         <span className="font-mono text-xs text-muted-foreground">
           Guest board · saved only in this browser · no calls
@@ -47,9 +48,7 @@ export default function TryPage() {
           variant="ghost"
           size="sm"
           data-testid="try-clear"
-          onClick={() => {
-            if (confirm('Clear everything on this board? You can undo with ⌘Z / Ctrl+Z, and earlier versions stay in History.')) board.clear()
-          }}
+          onClick={() => setConfirmClear(true)}
         >
           <Eraser /> Clear
         </Button>
@@ -68,6 +67,17 @@ export default function TryPage() {
         </div>
         <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, closable: true, Icon: History }]} />
       </div>
+      <ConfirmModal
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => {
+          board.clear()
+          setConfirmClear(false)
+        }}
+        title="Clear everything on this board?"
+        description="You can undo with ⌘Z / Ctrl+Z, and earlier versions stay in History."
+        confirmText="Clear board"
+      />
       {signIn && <AuthOverlay onClose={() => setSignIn(false)} />}
     </div>
   )

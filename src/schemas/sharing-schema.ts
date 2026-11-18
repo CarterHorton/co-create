@@ -10,7 +10,7 @@
  *                      boards, versions and specs all follow it.
  *   friendships      — one row per direction (A→B and B→A), so each side
  *                      reads only its own rows with 'own'.
- *   friend_codes     — short-lived 16-bit codes. Never readable by clients.
+ *   friend_codes     — single-use 32-bit codes, valid 5 minutes. Never readable by clients.
  *   friend_code_attempts — failed redeems, for throttling guesses.
  */
 

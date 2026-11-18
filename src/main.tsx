@@ -4,6 +4,19 @@ import { createRoot, hydrateRoot } from 'react-dom/client'
 import { routes } from '@generouted/react-router/lazy'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import { installStaleChunkRecovery } from './stale-chunk-recovery'
+// Self-hosted fonts (bundled by Vite, served from this origin) — no request
+// to Google Fonts, so visitor IPs never leave the app (GDPR). Only the
+// weights the UI uses; each file covers every script via unicode-range, so
+// the browser downloads just the subsets a page actually renders. Family
+// names match --font-sans / --font-display / --font-mono in styles.css.
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
+import '@fontsource/inter/900.css'
+import '@fontsource/inter-tight/800.css'
+import '@fontsource/inter-tight/900.css'
+import '@fontsource/jetbrains-mono/400.css'
+import '@fontsource/jetbrains-mono/600.css'
 import './styles.css'
 
 async function main() {

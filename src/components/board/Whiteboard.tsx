@@ -13,9 +13,29 @@
  * in 25% steps. Double-click empty space for a sticky, double-click a shape to
  * edit its text. With shapes selected, a bar just above them assigns them to a named
  * section. Delete removes the selection; ⌘Z / ⇧⌘Z undo/redo; ⌘A selects all.
+ *
+ * Keyboard (no pointer needed): the canvas is one tab stop; Tab then walks the
+ * shapes in reading order (top to bottom, left to right; arrows last) with a
+ * roving tabindex, and leaves the canvas after the last one. Focusing a shape
+ * selects it and pans it into view. On a focused shape: arrow keys move it
+ * 10px (Shift: 50px), Alt/Option+arrows resize it, Enter or F2 edits its text
+ * (Escape or Enter returns to the shape), C opens "Connect to…" to draw an
+ * arrow to another shape, Delete removes it. With the Sticky / Box / Text tool
+ * on, Enter on the canvas adds one in the middle of the view; arrow keys on the
+ * canvas itself pan.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { getUserColor } from 'deepspace'
 import {
   ArrowUpRight,
@@ -43,6 +63,9 @@ import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
+import { kindName, panToShow, readingOrder, shapeName } from './a11y'
+import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
+import { LiveRegion, useAnnouncer } from './LiveRegion'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -98,6 +121,33 @@ const keyOf = (id: ShortcutId) => SHORTCUTS[id][0].toLowerCase()
 
 const ROUTE_ICONS: Record<ArrowRoute, typeof Square> = { straight: Slash, elbow: CornerDownRight, curve: Spline }
 
+/** Arrow key → unit direction, for moving / resizing / panning by keyboard. */
+const ARROW_KEYS: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+}
+/** Keyboard move / resize steps (px), and with Shift. */
+const NUDGE = 10
+const NUDGE_BIG = 50
+/** A focus that lands this soon after a pointerdown came from the pointer. */
+const POINTER_FOCUS_MS = 500
+/** Collaborators' changes this close together are announced as one. */
+const REMOTE_WINDOW_MS = 2000
+/** More changes than this in one update is a restore / reload, not someone editing. */
+const BULK_CHANGE = 20
+const CREATION_TOOLS = ['sticky', 'box', 'text'] as const
+const isCreationTool = (t: Tool): t is (typeof CREATION_TOOLS)[number] => (CREATION_TOOLS as readonly string[]).includes(t)
+
+/** Focus a rendered shape (div or SVG arrow) without the browser scrolling anything. */
+function focusShapeEl(root: HTMLElement | null, id: string) {
+  requestAnimationFrame(() => {
+    const el = root?.querySelector<HTMLElement | SVGElement>(`[data-shape-id="${CSS.escape(id)}"]`)
+    el?.focus({ preventScroll: true })
+  })
+}
+
 
 interface WhiteboardProps {
   store: BoardStore
@@ -114,10 +164,72 @@ interface WhiteboardProps {
 const NO_PEERS: BoardPresence['peers'] = []
 
 export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
-  const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = store
+  const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
   const updateState = presence?.updateState
+
+  // ── Announcements (screen readers) ─────────────────────────────────────
+  // Every edit made here goes through these wrappers, which log it, so that
+  // whatever else changes on the board can be announced as a collaborator's.
+  const { message: announcement, say } = useAnnouncer()
+  const [localLog] = useState(() => createLocalLog())
+  const {
+    addShape: storeAdd,
+    deleteShape: storeDelete,
+    move: storeMove,
+    resize: storeResize,
+    update: storeUpdate,
+    undo: storeUndo,
+    redo: storeRedo,
+  } = store
+  const addShape = useCallback(
+    (shape: Partial<BoardShape>) => {
+      localLog.expectAdd(shape)
+      storeAdd(shape)
+      say(`${kindName({ type: shape.type ?? '' })} added`, 'add')
+    },
+    [localLog, storeAdd, say],
+  )
+  const deleteShape = useCallback(
+    (id: string) => {
+      localLog.touch(id)
+      storeDelete(id)
+    },
+    [localLog, storeDelete],
+  )
+  const move = useCallback(
+    (id: string, x: number, y: number) => {
+      localLog.touch(id)
+      storeMove(id, x, y)
+    },
+    [localLog, storeMove],
+  )
+  const resize = useCallback(
+    (id: string, width: number, height: number) => {
+      localLog.touch(id)
+      storeResize(id, width, height)
+    },
+    [localLog, storeResize],
+  )
+  const update = useCallback(
+    (id: string, props: Record<string, unknown>) => {
+      localLog.touch(id)
+      storeUpdate(id, props)
+    },
+    [localLog, storeUpdate],
+  )
+  /** Undo / redo change shapes we can't predict: count the next moments' changes as ours. */
+  const undo = useCallback(() => {
+    localLog.quiet(2000)
+    storeUndo()
+    say('Undone', 'history')
+  }, [localLog, storeUndo, say])
+  const redo = useCallback(() => {
+    localLog.quiet(2000)
+    storeRedo()
+    say('Redone', 'history')
+  }, [localLog, storeRedo, say])
 
   const [tool, setTool] = useState<Tool>('select')
   const [color, setColor] = useState<StickyColor>('white')
@@ -131,14 +243,25 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const [route, setRoute] = useState<ArrowRoute>('straight')
   const [exportOpen, setExportOpen] = useState(false)
   const [showSections, setShowSections] = useState(false)
+  /** The shape Tab enters the canvas on (roving tabindex): the last one focused. */
+  const [focusId, setFocusId] = useState<string | null>(null)
+  /** Shape whose "Connect to…" menu is open. */
+  const [connectFrom, setConnectFrom] = useState<string | null>(null)
+  const instructionsId = useId()
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
   const cursorFrame = useRef<number | null>(null)
   /** Set when this pointerdown created a shape, so the follow-up mousedown doesn't steal focus from its editor. */
   const justCreated = useRef(false)
+  /** When the last pointerdown on the canvas happened, to tell click-focus from keyboard focus. */
+  const pointerAt = useRef(0)
 
   const byId = useMemo(() => new Map(shapes.map((s) => [s.id, s])), [shapes])
+  /** Tab order: reading order, top to bottom, left to right; arrows last. */
+  const order = useMemo(() => readingOrder(shapes), [shapes])
+  const rovingId = focusId && byId.has(focusId) ? focusId : (order[0]?.id ?? null)
+  const focusShape = useCallback((id: string) => focusShapeEl(viewportRef.current, id), [])
 
   // A shape we just created arrives from the server with a fresh id; find it
   // by type + position so it opens straight into text editing.
@@ -227,14 +350,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       for (const s of shapes) {
         if (s.type === 'arrow' && (doomed.has(String(s.props.from)) || doomed.has(String(s.props.to)))) doomed.add(s.id)
       }
-      const order = shapes.filter((s) => doomed.has(s.id))
+      const gone = shapes.filter((s) => doomed.has(s.id))
       batch(() => {
-        for (const s of [...order.filter((x) => x.type === 'arrow'), ...order.filter((x) => x.type !== 'arrow')]) deleteShape(s.id)
+        for (const s of [...gone.filter((x) => x.type === 'arrow'), ...gone.filter((x) => x.type !== 'arrow')]) deleteShape(s.id)
       })
       setSelected([])
       setEditing(null)
+      if (gone.length) say(gone.length === 1 ? 'Shape deleted' : `${gone.length} shapes deleted`, 'delete')
+      // Don't strand keyboard focus on a removed element: hand it to the canvas.
+      const focused = document.activeElement?.getAttribute('data-shape-id')
+      if (focused && doomed.has(focused)) viewportRef.current?.focus({ preventScroll: true })
     },
-    [shapes, deleteShape, batch],
+    [shapes, deleteShape, batch, say],
   )
 
   /** Shapes touched by a world-space rectangle, plus arrows whose both ends are selected. */
@@ -383,6 +510,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   function onPointerUp() {
     const d = drag.current
     if (d?.kind === 'move' && !d.moved && d.collapseTo) setSelected([d.collapseTo])
+    if (d?.kind === 'move' && d.moved) say('Moved', 'move')
+    if (d?.kind === 'resize') say('Resized', 'resize')
     drag.current = null
     setPanning(false)
     setMarquee(null)
@@ -461,8 +590,114 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
 
   // ── Keyboard ───────────────────────────────────────────────────────────
 
+  /** Pan the least needed to show a world-space rectangle (the focused shape). */
+  const keepInView = useCallback((r: { x: number; y: number; width: number; height: number }) => {
+    const el = viewportRef.current
+    if (!el) return
+    setCam((c) => panToShow(c, r, { width: el.clientWidth, height: el.clientHeight }))
+  }, [])
+
+  /** Add a shape in the middle of the view (keyboard creation), nudged off any identical one. */
+  const createAtCenter = useCallback(
+    (type: Exclude<ShapeKind, 'arrow'>) => {
+      const el = viewportRef.current
+      if (!el) return
+      let wx = (el.clientWidth / 2 - cam.x) / cam.zoom
+      let wy = (el.clientHeight / 2 - cam.y) / cam.zoom
+      const { width, height } = DEFAULT_SIZE[type]
+      // A new shape is found again by type + position, so never stack two exactly.
+      const taken = (x: number, y: number) =>
+        shapes.some((s) => s.type === type && s.x === Math.round(x - width / 2) && s.y === Math.round(y - height / 2))
+      for (let i = 0; i < 50 && taken(wx, wy); i++) {
+        wx += 24
+        wy += 24
+      }
+      create(type, wx, wy)
+    },
+    [cam, shapes, create],
+  )
+
+  /** Arrow keys on a shape: move it (and the rest of the selection it's in). */
+  const nudge = useCallback(
+    (s: BoardShape, dx: number, dy: number) => {
+      const ids = selectedSet.has(s.id) ? [...selectedSet] : [s.id]
+      const targets = ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow')
+      batch(() => {
+        for (const x of targets) move(x.id, x.x + dx, x.y + dy)
+      })
+      if (targets.length) say('Moved', 'move')
+      keepInView({ x: s.x + dx, y: s.y + dy, width: s.width, height: s.height })
+    },
+    [selectedSet, byId, batch, move, keepInView, say],
+  )
+
+  function onShapeFocus(s: BoardShape) {
+    setFocusId(s.id)
+    // A click already selected (or deliberately didn't select) it; only keyboard focus selects and pans.
+    if (performance.now() - pointerAt.current < POINTER_FOCUS_MS) return
+    if (!selectedSet.has(s.id)) setSelected([s.id])
+    if (s.type === 'arrow') {
+      const from = byId.get(String(s.props.from))
+      const to = byId.get(String(s.props.to))
+      if (from && to) {
+        const x = Math.min(from.x, to.x)
+        const y = Math.min(from.y, to.y)
+        keepInView({ x, y, width: Math.max(from.x + from.width, to.x + to.width) - x, height: Math.max(from.y + from.height, to.y + to.height) - y })
+      }
+    } else keepInView(s)
+  }
+
+  function onShapeKeyDown(e: ReactKeyboardEvent, s: BoardShape) {
+    if (e.target !== e.currentTarget || e.nativeEvent.isComposing) return // e.g. keys typed into its text editor
+    const mod = e.metaKey || e.ctrlKey
+    if (e.key === 'Tab' && !mod && !e.altKey) {
+      // Reading order, not DOM order; past either end, Tab leaves the canvas as usual.
+      const i = order.findIndex((x) => x.id === s.id)
+      const next = order[i + (e.shiftKey ? -1 : 1)]
+      if (i >= 0 && next) {
+        e.preventDefault()
+        focusShape(next.id)
+      }
+      return
+    }
+    const dir = ARROW_KEYS[e.key]
+    if (dir && !mod) {
+      e.preventDefault() // also stops Alt+Left / Alt+Right navigating history
+      if (!canWrite || s.type === 'arrow') return
+      const step = e.shiftKey ? NUDGE_BIG : NUDGE
+      if (e.altKey) {
+        resize(s.id, Math.max(MIN_SIZE, s.width + dir[0] * step), Math.max(MIN_SIZE, s.height + dir[1] * step))
+        say('Resized', 'resize')
+        keepInView({ x: s.x, y: s.y, width: s.width + dir[0] * step, height: s.height + dir[1] * step })
+      } else nudge(s, dir[0] * step, dir[1] * step)
+      return
+    }
+    if ((e.key === 'Enter' || e.key === 'F2') && !mod && !e.altKey) {
+      e.preventDefault()
+      if (s.type === 'arrow') return
+      if (tool === 'arrow') return pickForArrow(s.id)
+      if (canWrite) setEditing({ id: s.id })
+      return
+    }
+    if (e.key.toLowerCase() === keyOf('connect') && !mod && !e.altKey && s.type !== 'arrow' && canWrite) {
+      e.preventDefault()
+      setConnectFrom(s.id)
+    }
+  }
+
+  /** Keys on the canvas itself (no shape focused): arrow keys pan. */
+  function onViewportKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return
+    const dir = ARROW_KEYS[e.key]
+    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return
+    e.preventDefault()
+    const step = e.shiftKey ? 200 : 50
+    setCam((c) => ({ ...c, x: c.x - dir[0] * step, y: c.y - dir[1] * step }))
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return // a focused shape or menu already handled it
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       const mod = e.metaKey || e.ctrlKey
@@ -499,6 +734,14 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         setTool('select')
         return
       }
+      // Enter on a button or link activates it; don't also start editing.
+      if (e.key === 'Enter' && t?.closest('button, a, [role="menuitem"]')) return
+      // With a creation tool on, Enter on the canvas (no shape focused) adds one mid-view.
+      if (e.key === 'Enter' && isCreationTool(tool) && canWrite && (t === viewportRef.current || t === document.body)) {
+        e.preventDefault()
+        createAtCenter(tool)
+        return
+      }
       if (e.key === 'Enter' && active && active.type !== 'arrow' && canWrite) {
         e.preventDefault()
         setEditing({ id: active.id })
@@ -531,20 +774,77 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter])
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter])
 
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
   }, [])
+
+  // ── Announce selection size and collaborators' changes ─────────────────
+
+  // One shape is announced by its name when focused; say counts for more.
+  const selCount = selectedSet.size
+  const prevSelCount = useRef(0)
+  useEffect(() => {
+    const prev = prevSelCount.current
+    prevSelCount.current = selCount
+    if (selCount !== prev && selCount >= 2) say(`${selCount} shapes selected`, 'selection')
+  }, [selCount, say])
+
+  const peersRef = useRef(peers)
+  useEffect(() => {
+    peersRef.current = peers
+  }, [peers])
+  /** Collaborators' changes within ~2 s become one announcement. */
+  const [remoteBatch] = useState(() => createCoalescer<RemoteChange>(REMOTE_WINDOW_MS, (items) => say(describeRemote(items), 'remote')))
+  useEffect(() => () => remoteBatch.dispose(), [remoteBatch])
+  const lastSeen = useRef<{ shapes: Map<string, BoardShape>; canWrite: boolean } | null>(null)
+  /** Changes before this time are the board loading, not news. */
+  const settledAt = useRef(Infinity)
+  const multiUser = !!presence
+  useEffect(() => {
+    const prev = lastSeen.current
+    lastSeen.current = { shapes: new Map(shapes.map((s) => [s.id, s])), canWrite }
+    if (!multiUser || !connected) {
+      settledAt.current = Infinity
+      return
+    }
+    const now = Date.now()
+    if (settledAt.current === Infinity) settledAt.current = now + REMOTE_WINDOW_MS
+    // Switching to / from a history preview swaps the whole board (and its write access): not news either.
+    if (now < settledAt.current || !prev || prev.canWrite !== canWrite) return
+    const d = diffShapes(prev.shapes, shapes)
+    if (d.added.length + d.removed.length + d.changed.length > BULK_CHANGE) return // a restore or reload
+    const ps = peersRef.current
+    // Only adds say who made them; with one other person here, it was them.
+    const solo = ps.length === 1 ? ps[0].userName : null
+    for (const s of d.added) {
+      if (localLog.isOwnAdd(s)) continue
+      const who = ps.find((p) => p.userId === s.createdBy)?.userName ?? solo
+      remoteBatch.push({ shapeId: s.id, action: 'added', kind: s.type, who })
+    }
+    for (const s of d.removed) {
+      if (!localLog.isOwnEdit(s.id)) remoteBatch.push({ shapeId: s.id, action: 'deleted', kind: s.type, who: solo })
+    }
+    for (const { shape: s, moved } of d.changed) {
+      if (!localLog.isOwnEdit(s.id)) remoteBatch.push({ shapeId: s.id, action: moved ? 'moved' : 'edited', kind: s.type, who: solo })
+    }
+  }, [shapes, connected, canWrite, multiUser, localLog, remoteBatch])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
   const arrows = shapes.filter((s) => s.type === 'arrow')
   const boxes = shapes.filter((s) => s.type !== 'arrow')
   const grid = 24 * cam.zoom
+  /** Focusing an element inside an overflow-hidden box can still scroll it; the camera does the panning here. */
+  const noScroll = (e: React.UIEvent<HTMLElement>) => {
+    e.currentTarget.scrollTop = 0
+    e.currentTarget.scrollLeft = 0
+  }
+  const connectSource = connectFrom ? byId.get(connectFrom) : undefined
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-background">
+    <div className="relative h-full w-full overflow-hidden bg-background" onScroll={noScroll}>
       {/* Toolbar */}
       <div
         role="toolbar"
@@ -599,7 +899,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
             )
           })}
         </div>
-        <div className="flex items-center gap-1 border-r border-border px-2" aria-label="Sticky color">
+        <div className="flex items-center gap-1 border-r border-border px-2" role="group" aria-label="Sticky color">
           {(Object.keys(STICKY_COLORS) as StickyColor[]).map((c) => {
             const selStickies = selectedShapes.filter((x) => x.type === 'sticky')
             const current = selStickies.length ? stickyColor(selStickies[0]) : color
@@ -643,7 +943,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
 
       {tool === 'arrow' && (
         <p className="absolute left-4 top-20 z-20 bg-foreground px-3 py-1 font-mono text-xs text-background">
-          {arrowFrom ? 'Now click the shape it points to' : 'Click the shape the arrow starts from'}
+          {arrowFrom ? 'Now click the shape it points to (or focus it and press Enter)' : 'Click the shape the arrow starts from (or focus it and press Enter)'}
         </p>
       )}
 
@@ -740,12 +1040,31 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </p>
       )}
 
+      <LiveRegion message={announcement} testId="board-announcer" />
+      <p id={instructionsId} className="sr-only">
+        Tab moves through the shapes from top to bottom and left to right; arrows come last. Focusing a shape selects it.
+        Arrow keys move the focused shape, with Shift for bigger steps. Alt or Option with arrow keys resizes it. Enter or
+        F2 edits its text; Enter or Escape finishes. C connects it to another shape with an arrow. Delete removes it. To
+        add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
+        arrow keys pan the view; plus and minus zoom.
+      </p>
+
       {/* Viewport */}
       <div
         ref={viewportRef}
         data-testid="board-viewport"
+        role="application"
+        aria-roledescription="whiteboard"
+        aria-label="Whiteboard canvas"
+        aria-describedby={instructionsId}
+        tabIndex={0}
+        onKeyDown={onViewportKeyDown}
+        onScroll={noScroll}
+        onPointerDownCapture={() => {
+          pointerAt.current = performance.now()
+        }}
         className={cn(
-          'absolute inset-0 touch-none select-none',
+          'absolute inset-0 touch-none select-none outline-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-royal',
           panning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : tool === 'select' ? 'cursor-default' : 'cursor-crosshair',
         )}
         style={{
@@ -791,7 +1110,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               const isActive = selectedSet.has(a.id)
               const hs = 10 / cam.zoom
               return (
-                <g key={a.id} data-testid="board-arrow" data-route={arrowRoute(a)}>
+                <g
+                  key={a.id}
+                  data-testid="board-arrow"
+                  data-route={arrowRoute(a)}
+                  data-shape-id={a.id}
+                  role="button"
+                  aria-label={shapeName(a, byId)}
+                  tabIndex={a.id === rovingId ? 0 : -1}
+                  onFocus={() => onShapeFocus(a)}
+                  onKeyDown={(e) => onShapeKeyDown(e, a)}
+                  className="outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-royal"
+                >
                   <path d={geo.d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" onPointerDown={(e) => onShapePointerDown(e, a)} />
                   <path
                     d={geo.d}
@@ -834,13 +1164,19 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               arrowSource={s.id === arrowFrom}
               editing={s.id === editingId}
               canWrite={canWrite}
+              label={shapeName(s, byId)}
+              tabbable={s.id === rovingId}
+              onFocus={() => onShapeFocus(s)}
+              onKeyDown={(e) => onShapeKeyDown(e, s)}
               onPointerDown={(e) => onShapePointerDown(e, s)}
               onResizePointerDown={(e) => onResizePointerDown(e, s)}
               onStartEdit={() => canWrite && setEditing({ id: s.id })}
               onSave={(text) => update(s.id, { text })}
-              onDone={() => {
+              onDone={(byKey) => {
                 setEditing(null)
                 setSelectedId(s.id)
+                // Finished from the keyboard: back to the shape, so keys keep working on it.
+                if (byKey) focusShape(s.id)
               }}
             />
           ))}
@@ -879,6 +1215,22 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           })}
         </div>
       </div>
+
+      {connectSource && (
+        <ConnectMenu
+          sourceName={shapeName(connectSource, byId)}
+          options={order.filter((x) => x.type !== 'arrow' && x.id !== connectSource.id).map((x) => ({ id: x.id, name: shapeName(x, byId) }))}
+          onPick={(to) => {
+            addShape({ type: 'arrow', x: 0, y: 0, width: 0, height: 0, props: { from: connectSource.id, to, route } })
+            setConnectFrom(null)
+            focusShape(connectSource.id)
+          }}
+          onClose={() => {
+            setConnectFrom(null)
+            focusShape(connectSource.id)
+          }}
+        />
+      )}
 
       {exportOpen && (
         <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} />
@@ -923,6 +1275,89 @@ function ToolbarButton({
   )
 }
 
+/**
+ * "Connect to…": the keyboard way to draw an arrow. Lists the other shapes by
+ * name; Enter on one adds an arrow to it. Arrow keys / Tab move through the
+ * list, Escape closes. Focus returns to the source shape either way.
+ */
+function ConnectMenu({
+  sourceName,
+  options,
+  onPick,
+  onClose,
+}: {
+  sourceName: string
+  options: { id: string; name: string }[]
+  onPick: (id: string) => void
+  onClose: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const headingId = useId()
+  useEffect(() => {
+    // The first shape, or Cancel when there's nothing to connect to.
+    rootRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  }, [])
+  const move = (dir: 1 | -1) => {
+    const items = [...(listRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+    const i = items.indexOf(document.activeElement as HTMLButtonElement)
+    items[(i + dir + items.length) % items.length]?.focus({ preventScroll: true })
+  }
+  return (
+    <div
+      ref={rootRef}
+      role="dialog"
+      aria-labelledby={headingId}
+      data-testid="connect-menu"
+      className="absolute left-1/2 top-24 z-30 flex max-h-[60%] w-80 -translate-x-1/2 flex-col border border-foreground bg-background shadow-[4px_4px_0_0_#000]"
+      onKeyDown={(e) => {
+        // Keep board shortcuts (Delete, tool keys…) from acting on the board behind the menu.
+        e.stopPropagation()
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          onClose()
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          move(e.key === 'ArrowDown' ? 1 : -1)
+        }
+      }}
+      onBlur={(e) => {
+        // Tabbing or clicking out of the menu closes it.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onClose()
+      }}
+    >
+      <p id={headingId} className="border-b border-border px-3 py-2 text-xs font-bold">
+        Connect an arrow from {sourceName} to…
+      </p>
+      {options.length ? (
+        <ul ref={listRef} className="min-h-0 overflow-y-auto p-1">
+          {options.map((o) => (
+            <li key={o.id}>
+              <button
+                type="button"
+                data-testid="connect-option"
+                onClick={() => onPick(o.id)}
+                className="w-full truncate px-2 py-1.5 text-left text-sm outline-none hover:bg-royal/20 focus-visible:bg-royal/30"
+              >
+                {o.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-3 py-2 text-sm text-muted-foreground">There are no other shapes to connect to.</p>
+      )}
+      <button
+        type="button"
+        onClick={onClose}
+        className="border-t border-border px-3 py-1.5 text-left text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 interface ShapeViewProps {
   shape: BoardShape
   selected: boolean
@@ -933,13 +1368,19 @@ interface ShapeViewProps {
   arrowSource: boolean
   editing: boolean
   canWrite: boolean
+  /** Accessible name, e.g. "Sticky note: Buy milk". */
+  label: string
+  /** In the tab sequence (roving tabindex: one shape at a time). */
+  tabbable: boolean
+  onFocus: () => void
+  onKeyDown: (e: ReactKeyboardEvent) => void
   onPointerDown: (e: ReactPointerEvent) => void
   onResizePointerDown: (e: ReactPointerEvent) => void
   onStartEdit: () => void
   /** Persist the text (also called when editing ends by clicking elsewhere). */
   onSave: (text: string) => void
-  /** Leave edit mode, keeping the shape selected (Enter / Escape / blur). */
-  onDone: () => void
+  /** Leave edit mode, keeping the shape selected (Enter / Escape → byKey, or blur). */
+  onDone: (byKey: boolean) => void
 }
 
 function ShapeView({
@@ -950,6 +1391,10 @@ function ShapeView({
   arrowSource,
   editing,
   canWrite,
+  label,
+  tabbable,
+  onFocus,
+  onKeyDown,
   onPointerDown,
   onResizePointerDown,
   onStartEdit,
@@ -963,6 +1408,14 @@ function ShapeView({
     <div
       data-testid={`shape-${s.type}`}
       data-shape-id={s.id}
+      // A group while editing, so the text box isn't nested inside a button.
+      role={editing ? 'group' : 'button'}
+      aria-label={label}
+      tabIndex={tabbable ? 0 : -1}
+      onFocus={(e) => {
+        if (e.target === e.currentTarget) onFocus()
+      }}
+      onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => {
         e.stopPropagation()
@@ -975,6 +1428,7 @@ function ShapeView({
         s.type === 'text' && 'items-start',
         canWrite && !editing ? 'cursor-move' : '',
         (selected || arrowSource) && 'outline outline-2 outline-offset-4 outline-royal/50',
+        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-royal',
       )}
       style={{
         left: s.x,
@@ -1040,7 +1494,7 @@ function EditText({
   initial: string
   className?: string
   onSave: (text: string) => void
-  onDone: () => void
+  onDone: (byKey: boolean) => void
 }) {
   const [value, setValue] = useState(initial)
   const latest = useRef(initial)
@@ -1059,9 +1513,9 @@ function EditText({
   // Save on unmount (click-away), not only on blur.
   useEffect(() => flush, [flush])
 
-  const finish = () => {
+  const finish = (byKey: boolean) => {
     flush()
-    onDone()
+    onDone(byKey)
   }
 
   return (
@@ -1076,13 +1530,13 @@ function EditText({
       onFocus={(e) => e.currentTarget.select()}
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      onBlur={finish}
+      onBlur={() => finish(false)}
       onKeyDown={(e) => {
         // Enter finishes; Shift+Enter is a new line. Leave IME composition alone.
         if (e.nativeEvent.isComposing) return
         if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
           e.preventDefault()
-          finish()
+          finish(true)
         }
       }}
       className={cn(
@@ -1228,7 +1682,7 @@ function SelectionBar({
   const assign = () => {
     if (name.trim()) onAssign(name.trim(), sub.trim() || null)
   }
-  const field = 'h-8 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50'
+  const field = 'h-8 border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
   return (
     <div
       ref={barRef}

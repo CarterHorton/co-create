@@ -51,7 +51,38 @@ export class AppRecordRoom extends RecordRoom<Env> {
 }
 
 export class AppYjsRoom extends YjsRoom<Env> {}
-export class AppCanvasRoom extends CanvasRoom<Env> {}
+/**
+ * Adds `POST /internal/clear-canvas`, used by the `boardDelete` action
+ * (src/actions/boards.ts) to drop a deleted board's shapes. Like BaseRoom's own
+ * `/internal/*` routes it is reachable only through a stub fetch from this
+ * worker: the one public route into CANVAS_ROOMS (`GET /ws/canvas/:docId` in
+ * src/server/realtime-routes.ts) forwards its own `/ws/canvas/...` URL, never
+ * an arbitrary path.
+ */
+export class AppCanvasRoom extends CanvasRoom<Env> {
+  protected async handleInternalRequest(request: Request, url: URL): Promise<Response | null> {
+    if (request.method === 'POST' && url.pathname === '/internal/clear-canvas') {
+      this.disconnectAllSockets({ code: 1012, reason: 'board-deleted' })
+      await this.state.storage.deleteAll()
+      // CanvasRoom caches the loaded doc and undo history in memory; drop
+      // them so nothing stale is re-persisted from this instance.
+      const self = this as unknown as {
+        doc: unknown
+        initialized: boolean
+        viewports: Map<unknown, unknown>
+        undoStacks: Map<unknown, unknown>
+        redoStacks: Map<unknown, unknown>
+      }
+      self.doc = null
+      self.initialized = false
+      self.viewports.clear()
+      self.undoStacks.clear()
+      self.redoStacks.clear()
+      return Response.json({ success: true })
+    }
+    return super.handleInternalRequest(request, url)
+  }
+}
 export class AppPresenceRoom extends PresenceRoom<Env> {}
 
 /** Runs the scheduled tasks defined in src/cron.ts. */

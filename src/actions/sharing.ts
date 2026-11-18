@@ -4,8 +4,10 @@
  * Actions run with record RBAC OFF (see src/server/action-routes.ts), so every
  * handler here checks ownership itself before writing.
  *
- *   friendCodeCreate  → a fresh 32-bit code (8 hex chars) valid for 20 s
+ *   friendCodeCreate  → a fresh 32-bit code (8 hex chars) valid for 5 minutes
  *   friendCodeRedeem  → { code } — makes caller and code owner friends (both ways)
+ *   friendRemove      → { friendId } — unfriends both ways and revokes boards
+ *                       either of them had sent the other
  *   boardShare        → { boardId, friendId } — owner sends a board to a friend
  *   boardRevoke       → { boardId, userId }   — owner takes access away
  */
@@ -13,7 +15,12 @@
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
 
-export const FRIEND_CODE_TTL_MS = 20_000
+/**
+ * 5 minutes: long enough to read a code out or type it in without racing a
+ * timer (WCAG 2.2.1). Still safe to guess against: 32-bit codes, at most
+ * MAX_FAILED_ATTEMPTS wrong guesses per user per minute, and single use.
+ */
+export const FRIEND_CODE_TTL_MS = 5 * 60_000
 /** Failed redeems allowed per user per window, to slow down guessing codes. */
 const MAX_FAILED_ATTEMPTS = 5
 const ATTEMPT_WINDOW_MS = 60_000
@@ -174,6 +181,43 @@ const friendCodeRedeem: ActionHandler<Env> = async ({ userId, params, tools }) =
   return { success: true, data: { friendId, friendName } }
 }
 
+/**
+ * Take `memberId` off every board `ownerId` owns. Found via memberId's own
+ * team_members rows; each board's owner is checked before anything is deleted.
+ */
+async function revokeOwnedBoards(tools: ActionTools, ownerId: string, memberId: string) {
+  const memberships = await queryAll<TeamMember>(tools, 'team_members', { userId: memberId }, 1000)
+  const boardIds = [...new Set(memberships.map((m) => m.data.teamId))]
+  for (const boardId of boardIds) {
+    const res = await tools.get<BoardRow>('boards', boardId)
+    if (!res.success || res.data.record.data.ownerId !== ownerId) continue
+    const del = await tools.deleteWhere('team_members', { teamId: boardId, userId: memberId })
+    if (!del.success) throw new Error(del.error)
+    await touchBoard(tools, { ...res.data.record, recordId: boardId } as Row<BoardRow>)
+  }
+}
+
+const friendRemove: ActionHandler<Env> = async ({ userId, params, tools }) => {
+  const friendId = params.friendId
+  if (typeof friendId !== 'string' || !friendId) return fail('Missing friend.', 'bad_request')
+  if (friendId === userId) return fail("You can't remove yourself.", 'bad_request')
+
+  // Both directions, each scoped by both ids so nobody else's rows are touched.
+  // With the uniqueOn rows gone, a new friend code can make them friends again.
+  for (const where of [
+    { ownerId: userId, friendId },
+    { ownerId: friendId, friendId: userId },
+  ]) {
+    const del = await tools.deleteWhere('friendships', where)
+    if (!del.success) return fail(del.error)
+  }
+
+  // Boards can only be shared between friends, so unsharing goes both ways too.
+  await revokeOwnedBoards(tools, userId, friendId)
+  await revokeOwnedBoards(tools, friendId, userId)
+  return { success: true, data: { friendId } }
+}
+
 const boardShare: ActionHandler<Env> = async ({ userId, params, tools }) => {
   const board = await loadOwnedBoard(tools, userId, params.boardId)
   if ('success' in board) return board
@@ -205,6 +249,7 @@ const boardRevoke: ActionHandler<Env> = async ({ userId, params, tools }) => {
 export const sharingActions: Record<string, ActionHandler<Env>> = {
   friendCodeCreate,
   friendCodeRedeem,
+  friendRemove,
   boardShare,
   boardRevoke,
 }
