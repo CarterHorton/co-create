@@ -1,6 +1,55 @@
+# Security headers for every static response (Cloudflare assets _headers file).
+#
+# Content-Security-Policy, directive by directive (one header line; the
+# values are explained here because _headers has no line continuation):
+#
+#   default-src 'self'      Anything not listed below: this origin only.
+#   script-src 'self'       Only the Vite bundle. index.html and the prerendered
+#                           pages (prerender.ts) emit no inline <script> and the
+#                           bundle uses no eval/new Function, so no hashes or
+#                           'unsafe-inline'/'unsafe-eval' are needed. (Vite dev's
+#                           inline react-refresh preamble is unaffected: the
+#                           Cloudflare plugin ignores _headers in dev unless
+#                           experimental.headersAndRedirectsDevModeSupport is on.)
+#   style-src 'self' 'unsafe-inline'
+#                           The first-paint <style> in index.html, React style={}
+#                           attributes (landing glow, whiteboard shapes, Base UI
+#                           positioning) and runtime-injected <style> tags.
+#   img-src 'self' data: blob: https:
+#                           Avatars come from the sign-in provider (Google /
+#                           GitHub / ... CDNs, user.imageUrl via AvatarImage), so
+#                           any https host; data:/blob: for generated images.
+#   font-src 'self' data:   Self-hosted @fontsource files; Vite inlines the
+#                           smallest subsets as data: URLs.
+#   connect-src 'self' wss: https://*.livekit.cloud wss://*.livekit.cloud
+#                           'self' = /api/* (auth, actions, integrations) and the
+#                           same-origin /ws/* realtime sockets. LiveKit (calls):
+#                           signalling over wss to the URL DeepSpace's
+#                           livekit/generate-token returns (*.livekit.cloud), plus
+#                           https to the same host for region lookup and
+#                           /rtc/validate. Bare `wss:` is deliberately permissive:
+#                           it covers a LiveKit URL on a non-livekit.cloud host and
+#                           older Safari, whose 'self' does not match wss://.
+#                           WebRTC media/ICE (STUN/TURN) is not governed by CSP.
+#   media-src 'self' blob:  Call audio/video (MediaStreams are attached via
+#                           srcObject, which CSP does not gate; blob: is a fallback).
+#   worker-src 'self' blob: livekit-client can spin up blob/module workers (e.g. E2EE).
+#   frame-ancestors 'none'  No framing (clickjacking); X-Frame-Options for old browsers.
+#   object-src 'none'       No plugins.
+#   base-uri 'self'         No <base> hijacking.
+#   form-action 'self'      Every form (auth overlay, friend codes, ...) submits via
+#                           JS fetch to /api/*. Social sign-in is a window.location
+#                           navigation to /api/auth/social-redirect, which
+#                           form-action does not govern.
+#
+# Strict-Transport-Security: HTTPS only for a year, subdomains included (the app
+# is only ever served over https on *.app.space / its custom domain).
+# Permissions-Policy: camera/microphone for this origin only (calls); everything
+# else the app never uses is switched off.
 /*
-  Content-Security-Policy: object-src 'none'; base-uri 'self'; frame-ancestors 'none'
-  Permissions-Policy: document-domain=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' wss: https://*.livekit.cloud wss://*.livekit.cloud; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(), document-domain=()
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
