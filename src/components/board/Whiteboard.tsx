@@ -93,6 +93,10 @@ import { NOTE_TYPES, cycleNoteType, type NoteType } from './noteTypes'
 import { NoteTypeBadge, NoteTypePicker } from './NoteTypeControls'
 import type { BoardVoting } from '@/votes/useBoardVotes'
 import { VoteBadges, VoteBar, VoteButton } from '@/votes/VoteControls'
+import { Database } from 'lucide-react'
+import { entitySize, newEntityProps, relationEnds } from '@/spec/dataModel'
+import { EntityBody, EntityDialog } from './EntityCard'
+import { RelationBar, RelationEnds } from './RelationBar'
 
 type Tool = 'select' | ShapeKind
 interface Camera {
@@ -124,6 +128,7 @@ const TOOLS: { id: Tool; label: string; shortcut: ShortcutId; Icon: typeof Squar
   { id: 'text', label: 'Text', shortcut: 'text', Icon: Type },
   { id: 'arrow', label: 'Arrow (click two shapes)', shortcut: 'arrow', Icon: ArrowUpRight },
   { id: 'frame', label: 'Frame (a named area; shapes inside move with it)', shortcut: 'frame', Icon: FrameIcon },
+  { id: 'entity', label: 'Database table', shortcut: 'entity', Icon: Database },
 ]
 const ROUTE_SHORTCUT: Record<ArrowRoute, ShortcutId> = { straight: 'routeStraight', elbow: 'routeElbow', curve: 'routeCurve' }
 /** Single-key shortcut → action. */
@@ -147,7 +152,7 @@ const POINTER_FOCUS_MS = 500
 const REMOTE_WINDOW_MS = 2000
 /** More changes than this in one update is a restore / reload, not someone editing. */
 const BULK_CHANGE = 20
-const CREATION_TOOLS = ['sticky', 'box', 'text', 'frame'] as const
+const CREATION_TOOLS = ['sticky', 'box', 'text', 'frame', 'entity'] as const
 const isCreationTool = (t: Tool): t is (typeof CREATION_TOOLS)[number] => (CREATION_TOOLS as readonly string[]).includes(t)
 
 /** Focus a rendered shape (div or SVG arrow) without the browser scrolling anything. */
@@ -361,7 +366,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       const { width, height } = DEFAULT_SIZE[type]
       const x = Math.round(wx - width / 2)
       const y = Math.round(wy - height / 2)
-      addShape({ type, x, y, width, height, props: { text: '', ...(type === 'sticky' ? { color } : {}) } })
+      addShape({ type, x, y, width, height, props: type === 'entity' ? newEntityProps() : { text: '', ...(type === 'sticky' ? { color } : {}) } })
       setEditing({ pending: { type, x, y } })
       setSelectedId(null)
       setTool('select')
@@ -443,7 +448,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     setEditing(null)
     setArrowFrom(null)
     const w = toWorld(e.clientX, e.clientY)
-    if (tool === 'sticky' || tool === 'box' || tool === 'text' || tool === 'frame') {
+    if (tool === 'sticky' || tool === 'box' || tool === 'text' || tool === 'frame' || tool === 'entity') {
       justCreated.current = true
       create(tool, w.x, w.y)
       return
@@ -711,6 +716,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     }
     if ((e.key === 'Enter' || e.key === 'F2') && !mod && !e.altKey) {
       e.preventDefault()
+      // Enter on a relation jumps to its cardinality picker (Escape there comes back).
+      if (s.type === 'arrow' && relationEnds(s, byId)) viewportRef.current?.parentElement?.querySelector<HTMLElement>('[data-testid="relation-bar"] [aria-pressed="true"]')?.focus()
       if (s.type === 'arrow') return
       if (tool === 'arrow') return pickForArrow(s.id)
       if (canWrite) setEditing({ id: s.id })
@@ -1073,6 +1080,42 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
           view={viewSize}
         />
       )}
+      {canWrite && tool === 'select' && active && relationEnds(active, byId) && (
+        <RelationBar
+          arrow={active}
+          {...relationEnds(active, byId)!}
+          cam={cam}
+          view={viewSize}
+          onChange={(c) => {
+            update(active.id, { cardinality: c })
+            say(shapeName({ ...active, props: { ...active.props, cardinality: c } }, byId), 'edit')
+          }}
+          onEscape={() => focusShape(active.id)}
+        />
+      )}
+      {active?.type === 'entity' && active.id === editingId && (
+        <EntityDialog
+          key={active.id}
+          shape={active}
+          finalFocus={() => viewportRef.current?.querySelector<HTMLElement>(`[data-shape-id="${CSS.escape(active.id)}"]`) ?? null}
+          onClose={() => {
+            setEditing(null)
+            setSelectedId(active.id)
+            focusShape(active.id)
+          }}
+          onSave={(name, fields) => {
+            batch(() => {
+              update(active.id, { name, fields })
+              const size = entitySize(name, fields, active.width)
+              if (size.width !== active.width || size.height !== active.height) resize(active.id, size.width, size.height)
+            })
+            say('Table saved', 'edit')
+            setEditing(null)
+            setSelectedId(active.id)
+            focusShape(active.id)
+          }}
+        />
+      )}
 
       {/* Zoom */}
       <div className="absolute bottom-4 right-4 z-20 flex items-center border border-foreground bg-background">
@@ -1111,6 +1154,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
         arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
         it. Y changes the selected sticky notes' type: idea, question, decision or risk.
         {votes && ' U votes for the selected sticky note, or removes your vote.'}
+        {' '}D then Enter adds a database table; Enter on a table edits its fields, and Enter on an arrow between two tables sets its cardinality.
       </p>
 
       {/* Viewport */}
@@ -1196,6 +1240,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
                     markerEnd={`url(#${isActive ? 'arrowhead-active' : 'arrowhead'})`}
                     pointerEvents="none"
                   />
+                  {relationEnds(a, byId) && <RelationEnds arrow={a} from={from} to={to} d={geo.d} tip={geo.tip} />}
                   {a.id === activeId && canWrite && geo.handle && geo.axis && (
                     <rect
                       data-testid="arrow-bend-handle"
@@ -1493,6 +1538,7 @@ function ShapeView({
         s.type === 'box' && 'items-center justify-center border-2 border-foreground bg-background p-3 text-center',
         s.type === 'text' && 'items-start',
         s.type === 'frame' && FRAME_CLASS,
+        s.type === 'entity' && 'flex-col border-2 border-foreground bg-background shadow-[4px_4px_0_0_#000]',
         canWrite && !editing ? 'cursor-move' : '',
         (selected || arrowSource) && 'outline outline-2 outline-offset-4 outline-royal/50',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-royal',
@@ -1505,7 +1551,9 @@ function ShapeView({
         ...colors,
       }}
     >
-      {editing ? (
+      {s.type === 'entity' ? (
+        <EntityBody shape={s} />
+      ) : editing ? (
         <EditText
           initial={text}
           className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold', s.type === 'frame' && FRAME_EDITOR_CLASS)}

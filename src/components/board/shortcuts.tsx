@@ -37,6 +37,7 @@ export const SHORTCUTS = {
   noteType: ['Y'],
   // Signed-in boards: vote for the selected sticky note ("upvote").
   vote: ['U'],
+  entity: ['D'],
 } as const
 
 export type ShortcutId = keyof typeof SHORTCUTS

@@ -6,6 +6,7 @@ import { Button, Checkbox, Modal } from '@/components/ui'
 import { buildMarkdown, specFileName } from '@/spec/buildSpec'
 import type { BoardShape } from './types'
 import { boardToPdf } from './pdf'
+import { DataModelExport } from './DataModelExport'
 
 export interface SpecPublisher {
   publish: (spec: { title: string; markdown: string }) => Promise<void>
@@ -104,6 +105,7 @@ export function ExportDialog({
         >
           {markdown}
         </pre>
+        <DataModelExport title={title} shapes={shapes} />
         {publishState === 'done' && publisher && (
           <div data-testid="publish-done" className="mt-3 border border-foreground p-3 text-sm">
             <p className="font-bold">Published. A coding agent can fetch it with:</p>

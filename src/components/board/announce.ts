@@ -94,6 +94,7 @@ const KIND_PHRASE: Record<string, string> = {
   text: 'a text label',
   arrow: 'an arrow',
   frame: 'a frame',
+  entity: 'a table',
 }
 
 /** One sentence for a batch of collaborators' changes; '' for none. */

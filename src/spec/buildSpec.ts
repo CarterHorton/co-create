@@ -18,6 +18,7 @@ import type { BoardShape } from '@/components/board/types'
 import { frameMembership, isFrame } from '@/components/board/frame'
 import { specPrefix } from '@/components/board/noteTypes'
 import { sectionKeyOf, typeSummaries } from './frames'
+import { dataModelMarkdown } from './dataModel'
 
 export interface SpecOptions {
   /** Max distance (canvas px) between two notes' edges to group them. */
@@ -440,7 +441,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
 
   if (sections.length === 0) {
     out.push('_The board has no written notes yet._', '')
-    return out.join('\n')
+    return [...out, ...dataModelMarkdown(shapes)].join('\n')
   }
   // ── Sections (rendered first, so the key and counts describe what was written) ──
   const body: string[] = []
@@ -590,6 +591,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     out.push('')
   }
   out.push(...typeSummaries(sections))
+  out.push(...dataModelMarkdown(shapes))
   return out.join('\n')
 }
 

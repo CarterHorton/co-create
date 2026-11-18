@@ -9,6 +9,7 @@
  */
 
 import { arrowBend, arrowGeometry, arrowRoute, shapeColors, shapeText } from './shapes'
+import { drawEntity, drawRelationEnds } from './entityPdf'
 import type { BoardShape } from './types'
 import { UNTITLED_FRAME, frameName, isFrame } from './frame'
 
@@ -144,6 +145,7 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
     ctx.lineTo(geo.tip.x - 12 * Math.cos(ang + 0.45), geo.tip.y - 12 * Math.sin(ang + 0.45))
     ctx.closePath()
     ctx.fill()
+    if (from.type === 'entity' && to.type === 'entity') drawRelationEnds(ctx, a, from, to, geo)
   }
 
   for (const s of shapes) {
@@ -162,6 +164,10 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
       ctx.lineWidth = s.type === 'box' ? 2 : 1
       const inset = ctx.lineWidth / 2
       ctx.strokeRect(s.x + inset, s.y + inset, s.width - inset * 2, s.height - inset * 2)
+    }
+    if (s.type === 'entity') {
+      drawEntity(ctx, s, font)
+      continue
     }
 
     const text = shapeText(s).trim()
