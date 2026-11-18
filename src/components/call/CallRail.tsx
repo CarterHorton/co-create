@@ -8,15 +8,18 @@ import { getUserColor } from 'deepspace'
 import { Mic, MicOff, PhoneOff, Phone, Video, VideoOff, Volume2 } from 'lucide-react'
 import type { VideoTrack } from 'livekit-client'
 import { Button } from '@/components/ui'
+import { LiveRegion, useAnnouncer } from '@/components/board/LiveRegion'
 import { cn } from '@/lib/utils'
 import { useCall, type CallParticipant } from './useCall'
 
 export function CallRail({ boardId, displayName }: { boardId: string; displayName?: string }) {
   const call = useCall(boardId, displayName)
   const inCall = call.status === 'connected'
+  const announcement = useCallAnnouncements(inCall, call.participants)
 
   return (
     <section data-testid="call-rail" aria-label="Call" className="flex min-h-0 flex-1 flex-col bg-background">
+      <LiveRegion message={announcement} testId="call-announcer" />
       {inCall && (
         <div className="flex h-8 items-center border-b border-border px-4">
           <span data-testid="call-count" className="font-mono text-xs text-muted-foreground">
@@ -85,6 +88,31 @@ export function CallRail({ boardId, displayName }: { boardId: string; displayNam
       </div>
     </section>
   )
+}
+
+/**
+ * Screen-reader news for the call: "Alex joined the call" / "Alex left the call",
+ * plus your own joining and leaving. Polite and throttled, like the board's.
+ */
+function useCallAnnouncements(inCall: boolean, participants: CallParticipant[]): string {
+  const { message, say } = useAnnouncer()
+  // participants is a fresh array every render: key the effect on who is here, not on identity.
+  const others = JSON.stringify(participants.filter((p) => !p.isLocal).map((p) => [p.identity, p.name]))
+  const prev = useRef<{ inCall: boolean; others: Map<string, string> }>({ inCall: false, others: new Map() })
+  useEffect(() => {
+    const now = new Map(JSON.parse(others) as [string, string][])
+    const before = prev.current
+    prev.current = { inCall, others: now }
+    if (inCall !== before.inCall) {
+      if (inCall) say(now.size ? `You joined the call. ${now.size + 1} in call` : 'You joined the call', 'self')
+      else say('You left the call', 'self')
+      return
+    }
+    if (!inCall) return
+    for (const [id, name] of now) if (!before.others.has(id)) say(`${name} joined the call`, `peer:${id}`)
+    for (const [id, name] of before.others) if (!now.has(id)) say(`${name} left the call`, `peer:${id}`)
+  }, [inCall, others, say])
+  return message
 }
 
 function RailButton({

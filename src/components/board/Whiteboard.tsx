@@ -63,7 +63,9 @@ import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
-import { panToShow, readingOrder, shapeName } from './a11y'
+import { kindName, panToShow, readingOrder, shapeName } from './a11y'
+import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
+import { LiveRegion, useAnnouncer } from './LiveRegion'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -131,6 +133,10 @@ const NUDGE = 10
 const NUDGE_BIG = 50
 /** A focus that lands this soon after a pointerdown came from the pointer. */
 const POINTER_FOCUS_MS = 500
+/** Collaborators' changes this close together are announced as one. */
+const REMOTE_WINDOW_MS = 2000
+/** More changes than this in one update is a restore / reload, not someone editing. */
+const BULK_CHANGE = 20
 const CREATION_TOOLS = ['sticky', 'box', 'text'] as const
 const isCreationTool = (t: Tool): t is (typeof CREATION_TOOLS)[number] => (CREATION_TOOLS as readonly string[]).includes(t)
 
@@ -158,10 +164,72 @@ interface WhiteboardProps {
 const NO_PEERS: BoardPresence['peers'] = []
 
 export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
-  const { shapes, canWrite, connected, addShape, deleteShape, move, resize, update, undo, redo } = store
+  const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
   const updateState = presence?.updateState
+
+  // ── Announcements (screen readers) ─────────────────────────────────────
+  // Every edit made here goes through these wrappers, which log it, so that
+  // whatever else changes on the board can be announced as a collaborator's.
+  const { message: announcement, say } = useAnnouncer()
+  const [localLog] = useState(() => createLocalLog())
+  const {
+    addShape: storeAdd,
+    deleteShape: storeDelete,
+    move: storeMove,
+    resize: storeResize,
+    update: storeUpdate,
+    undo: storeUndo,
+    redo: storeRedo,
+  } = store
+  const addShape = useCallback(
+    (shape: Partial<BoardShape>) => {
+      localLog.expectAdd(shape)
+      storeAdd(shape)
+      say(`${kindName({ type: shape.type ?? '' })} added`, 'add')
+    },
+    [localLog, storeAdd, say],
+  )
+  const deleteShape = useCallback(
+    (id: string) => {
+      localLog.touch(id)
+      storeDelete(id)
+    },
+    [localLog, storeDelete],
+  )
+  const move = useCallback(
+    (id: string, x: number, y: number) => {
+      localLog.touch(id)
+      storeMove(id, x, y)
+    },
+    [localLog, storeMove],
+  )
+  const resize = useCallback(
+    (id: string, width: number, height: number) => {
+      localLog.touch(id)
+      storeResize(id, width, height)
+    },
+    [localLog, storeResize],
+  )
+  const update = useCallback(
+    (id: string, props: Record<string, unknown>) => {
+      localLog.touch(id)
+      storeUpdate(id, props)
+    },
+    [localLog, storeUpdate],
+  )
+  /** Undo / redo change shapes we can't predict: count the next moments' changes as ours. */
+  const undo = useCallback(() => {
+    localLog.quiet(2000)
+    storeUndo()
+    say('Undone', 'history')
+  }, [localLog, storeUndo, say])
+  const redo = useCallback(() => {
+    localLog.quiet(2000)
+    storeRedo()
+    say('Redone', 'history')
+  }, [localLog, storeRedo, say])
 
   const [tool, setTool] = useState<Tool>('select')
   const [color, setColor] = useState<StickyColor>('white')
@@ -288,11 +356,12 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       })
       setSelected([])
       setEditing(null)
+      if (gone.length) say(gone.length === 1 ? 'Shape deleted' : `${gone.length} shapes deleted`, 'delete')
       // Don't strand keyboard focus on a removed element: hand it to the canvas.
       const focused = document.activeElement?.getAttribute('data-shape-id')
       if (focused && doomed.has(focused)) viewportRef.current?.focus({ preventScroll: true })
     },
-    [shapes, deleteShape, batch],
+    [shapes, deleteShape, batch, say],
   )
 
   /** Shapes touched by a world-space rectangle, plus arrows whose both ends are selected. */
@@ -441,6 +510,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   function onPointerUp() {
     const d = drag.current
     if (d?.kind === 'move' && !d.moved && d.collapseTo) setSelected([d.collapseTo])
+    if (d?.kind === 'move' && d.moved) say('Moved', 'move')
+    if (d?.kind === 'resize') say('Resized', 'resize')
     drag.current = null
     setPanning(false)
     setMarquee(null)
@@ -554,9 +625,10 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       batch(() => {
         for (const x of targets) move(x.id, x.x + dx, x.y + dy)
       })
+      if (targets.length) say('Moved', 'move')
       keepInView({ x: s.x + dx, y: s.y + dy, width: s.width, height: s.height })
     },
-    [selectedSet, byId, batch, move, keepInView],
+    [selectedSet, byId, batch, move, keepInView, say],
   )
 
   function onShapeFocus(s: BoardShape) {
@@ -595,6 +667,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       const step = e.shiftKey ? NUDGE_BIG : NUDGE
       if (e.altKey) {
         resize(s.id, Math.max(MIN_SIZE, s.width + dir[0] * step), Math.max(MIN_SIZE, s.height + dir[1] * step))
+        say('Resized', 'resize')
         keepInView({ x: s.x, y: s.y, width: s.width + dir[0] * step, height: s.height + dir[1] * step })
       } else nudge(s, dir[0] * step, dir[1] * step)
       return
@@ -706,6 +779,57 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
   }, [])
+
+  // ── Announce selection size and collaborators' changes ─────────────────
+
+  // One shape is announced by its name when focused; say counts for more.
+  const selCount = selectedSet.size
+  const prevSelCount = useRef(0)
+  useEffect(() => {
+    const prev = prevSelCount.current
+    prevSelCount.current = selCount
+    if (selCount !== prev && selCount >= 2) say(`${selCount} shapes selected`, 'selection')
+  }, [selCount, say])
+
+  const peersRef = useRef(peers)
+  useEffect(() => {
+    peersRef.current = peers
+  }, [peers])
+  /** Collaborators' changes within ~2 s become one announcement. */
+  const [remoteBatch] = useState(() => createCoalescer<RemoteChange>(REMOTE_WINDOW_MS, (items) => say(describeRemote(items), 'remote')))
+  useEffect(() => () => remoteBatch.dispose(), [remoteBatch])
+  const lastSeen = useRef<{ shapes: Map<string, BoardShape>; canWrite: boolean } | null>(null)
+  /** Changes before this time are the board loading, not news. */
+  const settledAt = useRef(Infinity)
+  const multiUser = !!presence
+  useEffect(() => {
+    const prev = lastSeen.current
+    lastSeen.current = { shapes: new Map(shapes.map((s) => [s.id, s])), canWrite }
+    if (!multiUser || !connected) {
+      settledAt.current = Infinity
+      return
+    }
+    const now = Date.now()
+    if (settledAt.current === Infinity) settledAt.current = now + REMOTE_WINDOW_MS
+    // Switching to / from a history preview swaps the whole board (and its write access): not news either.
+    if (now < settledAt.current || !prev || prev.canWrite !== canWrite) return
+    const d = diffShapes(prev.shapes, shapes)
+    if (d.added.length + d.removed.length + d.changed.length > BULK_CHANGE) return // a restore or reload
+    const ps = peersRef.current
+    // Only adds say who made them; with one other person here, it was them.
+    const solo = ps.length === 1 ? ps[0].userName : null
+    for (const s of d.added) {
+      if (localLog.isOwnAdd(s)) continue
+      const who = ps.find((p) => p.userId === s.createdBy)?.userName ?? solo
+      remoteBatch.push({ shapeId: s.id, action: 'added', kind: s.type, who })
+    }
+    for (const s of d.removed) {
+      if (!localLog.isOwnEdit(s.id)) remoteBatch.push({ shapeId: s.id, action: 'deleted', kind: s.type, who: solo })
+    }
+    for (const { shape: s, moved } of d.changed) {
+      if (!localLog.isOwnEdit(s.id)) remoteBatch.push({ shapeId: s.id, action: moved ? 'moved' : 'edited', kind: s.type, who: solo })
+    }
+  }, [shapes, connected, canWrite, multiUser, localLog, remoteBatch])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -916,6 +1040,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </p>
       )}
 
+      <LiveRegion message={announcement} testId="board-announcer" />
       <p id={instructionsId} className="sr-only">
         Tab moves through the shapes from top to bottom and left to right; arrows come last. Focusing a shape selects it.
         Arrow keys move the focused shape, with Shift for bigger steps. Alt or Option with arrow keys resizes it. Enter or

@@ -86,6 +86,8 @@ test('create a sticky, type, move it with arrow keys and delete it — no mouse'
   await page.keyboard.press('Delete')
   await expect(page.getByTestId('shape-sticky')).toHaveCount(0)
   await expect(page.getByTestId('board-viewport')).toBeFocused()
+  // ...and screen readers hear about it through the polite live region.
+  await expect(page.getByTestId('board-announcer')).toContainText('Shape deleted')
 })
 
 test('Tab walks shapes in reading order and C connects them with an arrow', async ({ page }) => {
