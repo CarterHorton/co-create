@@ -8,6 +8,7 @@
 import { test as base, expect as baseExpect, type Page } from '@playwright/test'
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import { displayName, shareBoard } from './helpers/share'
+import { boardIdFrom, deleteBoard } from './helpers/boards'
 
 async function addSticky(page: Page, x: number, y: number, text: string) {
   await page.getByTestId('board-viewport').dblclick({ position: { x, y } })
@@ -147,9 +148,6 @@ test.describe('comments on a shared board', () => {
     await expect(b.page.getByTestId('comment-thread')).toHaveCount(0, { timeout: 15_000 })
 
     // Clean up: deleting the board takes its comments and mentions with it.
-    await a.page.goto('/home')
-    await a.page.getByRole('button', { name: `Delete ${title}` }).click()
-    await a.page.getByRole('dialog').getByRole('button', { name: 'Delete board' }).click()
-    await expect(a.page.getByRole('link', { name: new RegExp(title) })).toHaveCount(0, { timeout: 15_000 })
+    await deleteBoard(a.page, boardIdFrom(a.page))
   })
 })
