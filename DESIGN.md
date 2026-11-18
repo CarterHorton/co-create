@@ -301,7 +301,7 @@ No blurred shadows, no soft depth cues. All elevation comes from border weight c
 
 - All text contrast ratios > 7:1 on white backgrounds
 - Royal blue elements at 50% opacity still pass AA standards when paired with black/white
-- Focus states use royal blue outline @30%, no border-radius
+- Focus states use a solid 2px royal blue outline (`outline-ring`, offset 2px), no border-radius — the one place royal is used at full strength, because a focus indicator needs ≥3:1 contrast (WCAG 1.4.11 / 2.4.13)
 - Reduced motion mode respects system preferences (animations reduce to instant state changes)
 
 ---
@@ -314,7 +314,7 @@ The live tokens are the `[data-theme="cocreate"]` block in `src/themes.css`
 `--font-display/sans/mono` families in the `@theme` block of `src/styles.css`.
 In Tailwind use `bg-background`, `text-foreground`, `border-border`,
 `font-display`, and royal blue only with an opacity modifier (`border-royal/50`,
-`ring-royal/30`). The values below are the reference palette:
+`bg-royal/20`); focus indicators use `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring`. The values below are the reference palette:
 
 ```css
 :root {

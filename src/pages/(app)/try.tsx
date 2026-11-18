@@ -33,7 +33,7 @@ export default function TryPage() {
           aria-label="Board title"
           value={board.title}
           onChange={(e) => board.setTitle(e.target.value)}
-          className="min-w-0 max-w-xs flex-1 bg-transparent font-display text-lg font-black tracking-[-0.01em] outline-none focus-visible:underline"
+          className="min-w-0 max-w-xs flex-1 bg-transparent font-display text-lg font-black tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         />
         <span className="font-mono text-xs text-muted-foreground">
           Guest board · saved only in this browser · no calls

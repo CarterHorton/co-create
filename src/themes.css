@@ -67,7 +67,9 @@
   --color-destructive-foreground: #ffffff;
   --color-border: #e0e0e0;
   --color-input: #333333;
-  --color-ring: rgba(65, 105, 225, 0.5);
+  /* Focus indicator (outline-ring): solid royal, not the /50 accent — a
+     focus ring needs ≥3:1 against white (WCAG 1.4.11 / 2.4.13); #4169E1 is ~5:1. */
+  --color-ring: #4169e1;
   --radius: 0px;
   /* The scaffold derives these as --radius ± n px; pin them so every
      rounded-* utility is a hard corner. */

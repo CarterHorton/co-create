@@ -31,7 +31,7 @@ export default function Landing() {
         {/* Bottom royal-blue glow — the only colour on the page (DESIGN.md). */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -bottom-5 left-1/2 h-[200px] w-[300px] -translate-x-1/2 blur-md"
+          className="pointer-events-none absolute -bottom-10 left-1/2 h-[400px] w-[600px] -translate-x-1/2 blur-md"
           style={{
             background:
               'radial-gradient(ellipse at center, rgba(65, 105, 225, 0.3) 0%, rgba(65, 105, 225, 0.05) 40%, transparent 70%)',
@@ -48,7 +48,7 @@ export default function Landing() {
 
         <Link
           to="/home"
-          className="inline-flex items-center justify-center border border-foreground bg-transparent px-8 py-4 text-sm font-bold uppercase tracking-[0.05em] text-foreground transition-colors duration-200 hover:border-royal/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-royal/30"
+          className="inline-flex items-center justify-center border border-foreground bg-transparent px-8 py-4 text-sm font-bold uppercase tracking-[0.05em] text-foreground transition-colors duration-200 hover:border-royal/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Start Creating
         </Link>

@@ -213,10 +213,12 @@
    * scroll containment. The result reads as "the entire panel /
    * dialog is selected" the moment a child button is clicked.
    *
-   * Per-component focus indicators (e.g. shadcn's
-   * `focus-visible:ring-1` on Button, `focus-visible:border-ring` on
-   * Input / Textarea / Select) are sufficient for keyboard
-   * accessibility and don't bleed onto containers.
+   * Per-component focus indicators are used instead: every interactive
+   * primitive in src/components/ui carries `focus-visible:outline-2
+   * focus-visible:outline-offset-2 focus-visible:outline-ring` (a 2px solid
+   * outline in --color-ring, ≥3:1 against the background in every theme —
+   * WCAG 2.4.7 / 1.4.11 / 2.4.13). Use the same trio on any hand-rolled
+   * control that sets `outline-none`; never remove the outline without it.
    *
    * If you DO need a global indicator for very keyboard-heavy apps,
    * scope it tightly — e.g. only to interactive elements:
