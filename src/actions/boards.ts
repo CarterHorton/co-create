@@ -61,6 +61,8 @@ const boardDelete: ActionHandler<Env> = async ({ userId, params, tools, env }) =
   try {
     const versions = await drain(tools, 'versions', { boardId })
     const specs = await drain(tools, 'specs', { boardId })
+    await drain(tools, 'votes', { boardId })
+    await drain(tools, 'vote_rounds', { boardId })
     // Access rows go after the content they guard and before the board row,
     // so a retry still finds the board and its owner.
     const members = await drain(tools, 'team_members', { teamId: boardId })

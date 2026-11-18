@@ -8,7 +8,7 @@ import { useMemo } from 'react'
 import { usePresenceRoom, useQuery, useUser } from 'deepspace'
 import { callAction } from '@/lib/actions'
 import type { SpecPublisher } from '@/components/board/ExportDialog'
-import { ArrowLeft, History } from 'lucide-react'
+import { ArrowLeft, History, ThumbsUp } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useBoard } from '@/components/board/useBoard'
@@ -17,6 +17,9 @@ import { ShareMenu } from '@/components/sharing/ShareMenu'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
+import { LiveRegion } from '@/components/board/LiveRegion'
+import { useBoardVotes } from '@/votes/useBoardVotes'
+import { VotesPanel } from '@/votes/VotesPanel'
 
 interface Board {
   title: string
@@ -59,17 +62,32 @@ export default function BoardPage() {
         boardId={board.recordId}
         title={board.data.title}
         userName={user?.name || user?.email || 'Someone'}
+        userId={user?.id}
+        isOwner={!!user && board.data.ownerId === user.id}
       />
     </div>
   )
 }
 
 /** Board + call + history for one board (keyed by board, so state resets per board). */
-function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: string; userName: string }) {
+function BoardWorkspace({
+  boardId,
+  title,
+  userName,
+  userId,
+  isOwner,
+}: {
+  boardId: string
+  title: string
+  userName: string
+  userId?: string
+  isOwner: boolean
+}) {
   const store = useBoard(boardId)
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
+  const votes = useBoardVotes({ boardId, userId, isOwner, shapes: store.shapes })
   const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
   const publisher = useMemo<SpecPublisher>(
     () => ({
@@ -93,7 +111,9 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             presence={presence}
             statusLabel={v.preview ? 'Viewing past version' : undefined}
             publisher={publisher}
+            votes={v.preview ? undefined : votes}
           />
+          <LiveRegion message={votes.announcement} testId="votes-announcer" />
         </div>
       </div>
       <BoardSidebar
@@ -106,6 +126,13 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             content: <HistoryPanel v={v} canWrite={store.canWrite} />,
             closable: true,
             Icon: History,
+          },
+          {
+            id: 'votes',
+            label: 'Votes',
+            content: <VotesPanel votes={votes} shapes={store.shapes} />,
+            closable: true,
+            Icon: ThumbsUp,
           },
         ]}
       />
