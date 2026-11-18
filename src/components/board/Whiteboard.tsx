@@ -84,6 +84,10 @@ import {
   textColorOf,
   type StickyColor,
 } from './shapes'
+import { Frame as FrameIcon } from 'lucide-react'
+import { FRAME_CLASS, FRAME_EDITOR_CLASS, FRAME_TITLE_CLASS, UNTITLED_FRAME, contains, isFrame, withFrameContents } from './frame'
+import { NOTE_TYPES, cycleNoteType, type NoteType } from './noteTypes'
+import { NoteTypeBadge, NoteTypePicker } from './NoteTypeControls'
 
 type Tool = 'select' | ShapeKind
 interface Camera {
@@ -114,6 +118,7 @@ const TOOLS: { id: Tool; label: string; shortcut: ShortcutId; Icon: typeof Squar
   { id: 'box', label: 'Box', shortcut: 'box', Icon: Square },
   { id: 'text', label: 'Text', shortcut: 'text', Icon: Type },
   { id: 'arrow', label: 'Arrow (click two shapes)', shortcut: 'arrow', Icon: ArrowUpRight },
+  { id: 'frame', label: 'Frame (a named area; shapes inside move with it)', shortcut: 'frame', Icon: FrameIcon },
 ]
 const ROUTE_SHORTCUT: Record<ArrowRoute, ShortcutId> = { straight: 'routeStraight', elbow: 'routeElbow', curve: 'routeCurve' }
 /** Single-key shortcut → action. */
@@ -137,7 +142,7 @@ const POINTER_FOCUS_MS = 500
 const REMOTE_WINDOW_MS = 2000
 /** More changes than this in one update is a restore / reload, not someone editing. */
 const BULK_CHANGE = 20
-const CREATION_TOOLS = ['sticky', 'box', 'text'] as const
+const CREATION_TOOLS = ['sticky', 'box', 'text', 'frame'] as const
 const isCreationTool = (t: Tool): t is (typeof CREATION_TOOLS)[number] => (CREATION_TOOLS as readonly string[]).includes(t)
 
 /** Focus a rendered shape (div or SVG arrow) without the browser scrolling anything. */
@@ -298,6 +303,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       for (const x of selectedNotes) update(x.id, { section: name, subsection: name ? subsection : null })
     })
 
+  /** Sticky note type (idea / question / decision / risk) for the selected stickies. */
+  const selectedStickies = selectedNotes.filter((x) => x.type === 'sticky')
+  const setNoteType = (t: NoteType) => {
+    if (!selectedStickies.length) return
+    batch(() => {
+      for (const x of selectedStickies) update(x.id, { noteType: t === 'idea' ? null : t })
+    })
+    say(`Marked as ${NOTE_TYPES[t].label.toLowerCase()}`, 'noteType')
+  }
+  const setNoteTypeRef = useRef(setNoteType)
+  useLayoutEffect(() => {
+    setNoteTypeRef.current = setNoteType
+  })
+
   /** Text color applies to any note, box or label; fill and border only to boxes. */
   const restyle = (key: 'textColor' | 'fill' | 'stroke', value: string | null) =>
     batch(() => {
@@ -371,6 +390,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       const [t, b] = [Math.min(y0, y1), Math.max(y0, y1)]
       const ids = new Set(base)
       for (const s of shapes) {
+        // A frame only when the box takes it in whole: box-selecting notes on a frame shouldn't pick up the frame.
+        if (isFrame(s)) {
+          if (contains({ x: l, y: t, width: r - l, height: b - t }, s)) ids.add(s.id)
+          continue
+        }
         if (s.type !== 'arrow' && s.x < r && s.x + s.width > l && s.y < b && s.y + s.height > t) ids.add(s.id)
       }
       for (const s of shapes) {
@@ -412,7 +436,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     setEditing(null)
     setArrowFrom(null)
     const w = toWorld(e.clientX, e.clientY)
-    if (tool === 'sticky' || tool === 'box' || tool === 'text') {
+    if (tool === 'sticky' || tool === 'box' || tool === 'text' || tool === 'frame') {
       justCreated.current = true
       create(tool, w.x, w.y)
       return
@@ -443,10 +467,10 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     const ids = inSelection ? [...selectedSet] : [s.id]
     if (!inSelection) setSelected([s.id])
     if (!canWrite) return
-    const origins = ids
-      .map((id) => byId.get(id))
-      .filter((x): x is BoardShape => !!x && x.type !== 'arrow')
-      .map((x) => ({ id: x.id, x: x.x, y: x.y }))
+    const origins = withFrameContents(
+      ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow'),
+      shapes,
+    ).map((x) => ({ id: x.id, x: x.x, y: x.y }))
     if (!origins.length) return
     drag.current = {
       kind: 'move',
@@ -621,14 +645,17 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const nudge = useCallback(
     (s: BoardShape, dx: number, dy: number) => {
       const ids = selectedSet.has(s.id) ? [...selectedSet] : [s.id]
-      const targets = ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow')
+      const targets = withFrameContents(
+        ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow'),
+        shapes,
+      )
       batch(() => {
         for (const x of targets) move(x.id, x.x + dx, x.y + dy)
       })
       if (targets.length) say('Moved', 'move')
       keepInView({ x: s.x + dx, y: s.y + dy, width: s.width, height: s.height })
     },
-    [selectedSet, byId, batch, move, keepInView, say],
+    [selectedSet, byId, batch, move, keepInView, say, shapes],
   )
 
   function onShapeFocus(s: BoardShape) {
@@ -758,6 +785,10 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       if (routeHit && canWrite) return applyRoute(routeHit.id)
       if (k === keyOf('sections')) return setShowSections((v) => !v)
       if (k === keyOf('export')) return setExportOpen(true)
+      if (k === keyOf('noteType') && canWrite) {
+        const stickies = [...selectedSet].map((id) => shapes.find((s) => s.id === id)).filter((s) => s?.type === 'sticky')
+        if (stickies.length) return setNoteTypeRef.current(cycleNoteType(stickies as BoardShape[]))
+      }
       if (e.key === '+' || e.key === '=') return zoomAtCenter(1)
       if (e.key === '-' || e.key === '_') return zoomAtCenter(-1)
       if (e.key === '0') return setCam({ x: 0, y: 0, zoom: 1 })
@@ -1010,6 +1041,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           onUngroup={() => assignSection(null)}
           onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
+          onNoteType={setNoteType}
         />
       )}
 
@@ -1046,7 +1078,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         Arrow keys move the focused shape, with Shift for bigger steps. Alt or Option with arrow keys resizes it. Enter or
         F2 edits its text; Enter or Escape finishes. C connects it to another shape with an arrow. Delete removes it. To
         add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
-        arrow keys pan the view; plus and minus zoom.
+        arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
+        it. Y changes the selected sticky notes' type: idea, question, decision or risk.
       </p>
 
       {/* Viewport */}
@@ -1426,6 +1459,7 @@ function ShapeView({
         s.type === 'sticky' && 'items-start p-4 shadow-[4px_4px_0_0_#000] border border-foreground',
         s.type === 'box' && 'items-center justify-center border-2 border-foreground bg-background p-3 text-center',
         s.type === 'text' && 'items-start',
+        s.type === 'frame' && FRAME_CLASS,
         canWrite && !editing ? 'cursor-move' : '',
         (selected || arrowSource) && 'outline outline-2 outline-offset-4 outline-royal/50',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-royal',
@@ -1441,23 +1475,26 @@ function ShapeView({
       {editing ? (
         <EditText
           initial={text}
-          className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold')}
+          className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold', s.type === 'frame' && FRAME_EDITOR_CLASS)}
           onSave={onSave}
           onDone={onDone}
         />
       ) : (
         <p
+          data-testid={s.type === 'frame' ? 'frame-title' : undefined}
           className={cn(
             'w-full overflow-hidden whitespace-pre-wrap break-words leading-snug',
             s.type === 'sticky' && 'text-base',
             s.type === 'box' && 'text-base font-bold',
             s.type === 'text' && 'text-xl font-bold',
+            s.type === 'frame' && FRAME_TITLE_CLASS,
             !text && 'opacity-40',
           )}
         >
-          {text || (canWrite ? 'Double-click to write' : '')}
+          {text || (s.type === 'frame' ? UNTITLED_FRAME : canWrite ? 'Double-click to write' : '')}
         </p>
       )}
+      {s.type === 'sticky' && <NoteTypeBadge shape={s} />}
       {showSectionTag && sectionNameOf(s) && (
         <span
           data-testid="shape-section-tag"
@@ -1471,7 +1508,7 @@ function ShapeView({
         <div
           role="presentation"
           onPointerDown={onResizePointerDown}
-          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize border border-foreground bg-background"
+          className="pointer-events-auto absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize border border-foreground bg-background"
         />
       )}
     </div>
@@ -1642,6 +1679,7 @@ function SelectionBar({
   onUngroup,
   onRestyle,
   onDelete,
+  onNoteType,
 }: {
   /** The selection's on-screen left edge, top and bottom (viewport px). */
   anchor: { left: number; top: number; bottom: number }
@@ -1654,6 +1692,7 @@ function SelectionBar({
   onUngroup: () => void
   onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
   onDelete: () => void
+  onNoteType: (t: NoteType) => void
 }) {
   const [colorsOpen, setColorsOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
@@ -1772,6 +1811,7 @@ function SelectionBar({
         <Palette className="size-3.5" /> Color
       </button>
       {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
+      <NoteTypePicker shapes={shapes} onPick={onNoteType} />
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"

@@ -33,6 +33,8 @@ export const SHORTCUTS = {
   moveShape: ['Arrows'],
   resizeShape: ['Alt', 'Arrows'],
   connect: ['C'],
+  frame: ['F'],
+  noteType: ['Y'],
 } as const
 
 export type ShortcutId = keyof typeof SHORTCUTS

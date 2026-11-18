@@ -88,6 +88,7 @@ const NOUN: Record<string, [string, string]> = {
   box: ['box', 'boxes'],
   text: ['label', 'labels'],
   arrow: ['arrow', 'arrows'],
+  frame: ['frame', 'frames'],
 }
 function countByType(shapes: SnapshotShape[]) {
   const counts = new Map<string, number>()
