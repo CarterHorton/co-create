@@ -9,6 +9,10 @@
  * `team_members` with teamId = this board's `teamId`, which is its recordId)
  * can read it. Sharing and revoking go through src/actions/sharing.ts; the
  * client may only set `title` (and `ownerId`, which is stamped and immutable).
+ *
+ * Deleting goes through the `boardDelete` action (src/actions/boards.ts) so the
+ * board's versions, specs, access rows and canvas go with it; nobody may
+ * delete the row directly.
  */
 
 import type { CollectionSchema } from 'deepspace/schema'
@@ -29,7 +33,7 @@ export const boardsSchema: CollectionSchema = {
   teamField: 'teamId',
   permissions: {
     viewer: { read: 'team', create: false, update: false, delete: false },
-    member: { read: 'team', create: true, update: 'own', delete: 'own', writableFields: WRITABLE },
-    admin: { read: 'team', create: true, update: 'own', delete: 'own', writableFields: WRITABLE },
+    member: { read: 'team', create: true, update: 'own', delete: false, writableFields: WRITABLE },
+    admin: { read: 'team', create: true, update: 'own', delete: false, writableFields: WRITABLE },
   },
 }

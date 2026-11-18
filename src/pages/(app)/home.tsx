@@ -10,6 +10,7 @@ import { AuthOverlay, useAuthProfileReady, useMutations, useQuery, ROLES } from 
 import { ArrowRight, Trash2 } from 'lucide-react'
 import { Button, Input, useToast } from '@/components/ui'
 import { PartyPanel } from '@/components/sharing/PartyPanel'
+import { callAction } from '@/lib/actions'
 
 interface Board {
   title: string
@@ -53,10 +54,19 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
     orderBy: 'createdAt',
     orderDir: 'desc',
   })
-  const { createConfirmed, remove } = useMutations<Board>('boards')
+  const { createConfirmed } = useMutations<Board>('boards')
   const [title, setTitle] = useState('')
   const [creating, setCreating] = useState(false)
   const canCreate = role !== ROLES.VIEWER
+
+  /** Server-side so the board's versions, specs, access rows and canvas go too. */
+  async function deleteBoard(boardId: string) {
+    try {
+      await callAction('boardDelete', { boardId })
+    } catch (err) {
+      error('Could not delete board', err instanceof Error ? err.message : String(err))
+    }
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
@@ -126,7 +136,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
                     type="button"
                     aria-label={`Delete ${b.data.title}`}
                     onClick={() => {
-                      if (confirm(`Delete "${b.data.title}"? This can't be undone.`)) remove(b.recordId)
+                      if (confirm(`Delete "${b.data.title}"? This can't be undone.`)) void deleteBoard(b.recordId)
                     }}
                     className="absolute right-12 top-1/2 -translate-y-1/2 p-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                   >
