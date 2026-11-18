@@ -1,12 +1,24 @@
 /**
  * Party — your friends list. Show a friend code (valid 20 s) for someone else
- * to type in, or type in theirs. Once added, a friend stays.
+ * to type in, or type in theirs. A friend stays until either of you removes
+ * the other, which also takes back boards you'd sent each other.
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery } from 'deepspace'
-import { UserPlus } from 'lucide-react'
-import { Button, Input, useToast } from '@/components/ui'
+import { UserPlus, X } from 'lucide-react'
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  useToast,
+} from '@/components/ui'
 import { callAction } from '@/lib/actions'
 import type { Friendship } from './types'
 
@@ -42,6 +54,8 @@ export function PartyPanel({ userId }: { userId: string }) {
   const [issuing, setIssuing] = useState(false)
   const [entry, setEntry] = useState('')
   const [redeeming, setRedeeming] = useState(false)
+  const [pendingRemove, setPendingRemove] = useState<{ friendId: string; name: string } | null>(null)
+  const [removing, setRemoving] = useState(false)
   const secondsLeft = useSecondsLeft(issued?.expiresAt ?? null)
   const live = issued && secondsLeft > 0
 
@@ -70,6 +84,20 @@ export function PartyPanel({ userId }: { userId: string }) {
       error('Could not add friend', (err as Error).message)
     } finally {
       setRedeeming(false)
+    }
+  }
+
+  async function confirmRemove() {
+    if (!pendingRemove) return
+    setRemoving(true)
+    try {
+      await callAction('friendRemove', { friendId: pendingRemove.friendId })
+      success(`${pendingRemove.name} removed from your party`)
+      setPendingRemove(null)
+    } catch (err) {
+      error('Could not remove friend', (err as Error).message)
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -119,13 +147,54 @@ export function PartyPanel({ userId }: { userId: string }) {
 
       {status !== 'loading' && friends.length > 0 && (
         <ul data-testid="friend-list" className="mt-4 flex flex-wrap gap-2">
-          {friends.map((f) => (
-            <li key={f.recordId} className="border border-border px-2 py-1 text-sm">
-              {f.data.friendName || 'Friend'}
-            </li>
-          ))}
+          {friends.map((f) => {
+            const name = f.data.friendName || 'Friend'
+            return (
+              <li key={f.recordId} className="flex items-center gap-1 border border-border py-0.5 pl-2 pr-0.5 text-sm">
+                <span>{name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2"
+                  aria-label={`Remove ${name} from your party`}
+                  data-testid={`friend-remove-${f.data.friendId}`}
+                  onClick={() => setPendingRemove({ friendId: f.data.friendId, name })}
+                >
+                  <X className="size-3.5" aria-hidden="true" /> Remove
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       )}
+
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removing) setPendingRemove(null)
+        }}
+      >
+        <DialogContent data-testid="friend-remove-dialog">
+          <DialogHeader>
+            <DialogTitle>Remove {pendingRemove?.name} from your party?</DialogTitle>
+            <DialogDescription>
+              This also removes access to boards you've shared with each other: they lose the boards you sent them, and
+              you lose the boards they sent you. You can add each other again later with a new friend code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={removing} />}>Cancel</DialogClose>
+            <Button
+              variant="destructive"
+              data-testid="friend-remove-confirm"
+              loading={removing}
+              onClick={confirmRemove}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

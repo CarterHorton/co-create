@@ -9,7 +9,7 @@ interface Party {
 }
 
 /** B's display name as the app shows it (name || email) — what A's friend list stores. */
-async function displayName(page: Page): Promise<string> {
+export async function displayName(page: Page): Promise<string> {
   await expect(page.getByTestId('nav-user-name')).toHaveText(/\S/, { timeout: 15_000 })
   return ((await page.getByTestId('nav-user-name').textContent()) ?? '').trim()
 }
