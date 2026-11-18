@@ -1,10 +1,15 @@
 /**
- * Party — your friends list. Show a friend code (valid 20 s) for someone else
- * to type in, or type in theirs. A friend stays until either of you removes
- * the other, which also takes back boards you'd sent each other.
+ * Party — your friends list. Show a friend code (valid 5 minutes) for someone
+ * else to type in, or type in theirs. A friend stays until either of you
+ * removes the other, which also takes back boards you'd sent each other.
+ *
+ * Timing is accessible (WCAG 2.2.1 / 4.1.3): the code lasts 5 minutes, a "New
+ * code" button appears once 30 s remain (and after expiry), and the visible
+ * m:ss countdown is hidden from screen readers. A polite live region speaks
+ * only the new code, "30 seconds left" and "Code expired".
  */
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useQuery } from 'deepspace'
 import { UserPlus, X } from 'lucide-react'
 import {
@@ -20,11 +25,13 @@ import {
   useToast,
 } from '@/components/ui'
 import { callAction } from '@/lib/actions'
+import { codeAnnouncement, formatCountdown, LOW_TIME_SECONDS } from './friendCode'
 import type { Friendship } from './types'
 
 interface IssuedCode {
   code: string
   expiresAt: number
+  ttlMs: number
 }
 
 /** 8 hex chars shown as XXXX-XXXX so they're easier to read out. */
@@ -58,13 +65,28 @@ export function PartyPanel({ userId }: { userId: string }) {
   const [removing, setRemoving] = useState(false)
   const secondsLeft = useSecondsLeft(issued?.expiresAt ?? null)
   const live = issued && secondsLeft > 0
+  const lowTime = live && secondsLeft <= LOW_TIME_SECONDS
+  const codeRef = useRef<HTMLSpanElement>(null)
+  const issueButtonRef = useRef<HTMLButtonElement>(null)
+  // The issue button goes away once a fresh code shows; if it had focus, hand
+  // focus to the new code rather than dropping it on the page body.
+  const focusCodeNext = useRef(false)
+
+  useEffect(() => {
+    if (issued && focusCodeNext.current) {
+      focusCodeNext.current = false
+      codeRef.current?.focus()
+    }
+  }, [issued])
 
   async function issue() {
+    const hadFocus = document.activeElement === issueButtonRef.current
     setIssuing(true)
     try {
-      const { code, expiresAt, ttlMs } = await callAction<IssuedCode & { ttlMs: number }>('friendCodeCreate')
+      const { code, expiresAt, ttlMs } = await callAction<IssuedCode>('friendCodeCreate')
       // Count down from this browser's clock, not the server's.
-      setIssued({ code, expiresAt: Date.now() + Math.min(ttlMs, Math.max(0, expiresAt - Date.now())) })
+      focusCodeNext.current = hadFocus
+      setIssued({ code, ttlMs, expiresAt: Date.now() + Math.min(ttlMs, Math.max(0, expiresAt - Date.now())) })
     } catch (e) {
       error('Could not make a code', (e as Error).message)
     } finally {
@@ -113,21 +135,45 @@ export function PartyPanel({ userId }: { userId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="mb-2 text-sm text-muted-foreground">Give a friend your code. It works once, for 20 seconds.</p>
-          {live ? (
-            <div className="flex items-center gap-3">
-              <span data-testid="friend-code" className="font-mono text-2xl font-black tracking-[0.2em]">
-                {formatCode(issued.code)}
-              </span>
-              <span data-testid="friend-code-timer" className="font-mono text-xs text-muted-foreground">
-                {secondsLeft}s
-              </span>
-            </div>
-          ) : (
-            <Button data-testid="friend-code-create" variant="outline" onClick={issue} loading={issuing}>
-              {issued ? 'Code expired — get a new one' : 'Get friend code'}
-            </Button>
-          )}
+          <p className="mb-2 text-sm text-muted-foreground">Give a friend your code. It works once, for 5 minutes.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            {live && (
+              <>
+                <span
+                  ref={codeRef}
+                  tabIndex={-1}
+                  data-testid="friend-code"
+                  className="font-mono text-2xl font-black tracking-[0.2em] outline-none"
+                >
+                  {formatCode(issued.code)}
+                </span>
+                {/* Visual only: ticking every second would flood screen readers. */}
+                <span
+                  data-testid="friend-code-timer"
+                  aria-hidden="true"
+                  className="font-mono text-xs tabular-nums text-muted-foreground"
+                >
+                  {formatCountdown(secondsLeft)}
+                </span>
+              </>
+            )}
+            {/* One button slot, so focus survives the switch from "New code" to "expired". */}
+            {(!live || lowTime) && (
+              <Button
+                ref={issueButtonRef}
+                data-testid="friend-code-create"
+                variant="outline"
+                size={live ? 'sm' : 'default'}
+                onClick={issue}
+                loading={issuing}
+              >
+                {live ? 'New code' : issued ? 'Code expired — get a new one' : 'Get friend code'}
+              </Button>
+            )}
+          </div>
+          <p data-testid="friend-code-status" role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {codeAnnouncement(issued, secondsLeft)}
+          </p>
         </div>
 
         <form onSubmit={redeem} className="flex items-start gap-2">

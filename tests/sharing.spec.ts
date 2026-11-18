@@ -34,6 +34,13 @@ test('boards are private until sent, and revoking removes access', async ({ user
   await a.page.getByTestId('friend-code-create').click()
   const code = (await a.page.getByTestId('friend-code').textContent())?.trim() ?? ''
   expect(code).toMatch(/^[0-9A-F]{4}-[0-9A-F]{4}$/)
+  // 5 minutes, shown as m:ss but hidden from screen readers; the live region
+  // announces the code once instead of every tick.
+  await expect(a.page.getByTestId('friend-code-timer')).toHaveText(/^[45]:\d\d$/)
+  await expect(a.page.getByTestId('friend-code-timer')).toHaveAttribute('aria-hidden', 'true')
+  await expect(a.page.getByTestId('friend-code-status')).toHaveText(
+    `Your code is ${code.replace('-', '').split('').join(' ')}, valid for 5 minutes`,
+  )
   await b.page.getByTestId('friend-code-input').fill(code)
   await b.page.getByTestId('friend-code-redeem').click()
   await expect(b.page.getByText(/joined your party/)).toBeVisible({ timeout: 15_000 })

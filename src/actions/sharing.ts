@@ -4,7 +4,7 @@
  * Actions run with record RBAC OFF (see src/server/action-routes.ts), so every
  * handler here checks ownership itself before writing.
  *
- *   friendCodeCreate  → a fresh 32-bit code (8 hex chars) valid for 20 s
+ *   friendCodeCreate  → a fresh 32-bit code (8 hex chars) valid for 5 minutes
  *   friendCodeRedeem  → { code } — makes caller and code owner friends (both ways)
  *   friendRemove      → { friendId } — unfriends both ways and revokes boards
  *                       either of them had sent the other
@@ -15,7 +15,12 @@
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
 
-export const FRIEND_CODE_TTL_MS = 20_000
+/**
+ * 5 minutes: long enough to read a code out or type it in without racing a
+ * timer (WCAG 2.2.1). Still safe to guess against: 32-bit codes, at most
+ * MAX_FAILED_ATTEMPTS wrong guesses per user per minute, and single use.
+ */
+export const FRIEND_CODE_TTL_MS = 5 * 60_000
 /** Failed redeems allowed per user per window, to slow down guessing codes. */
 const MAX_FAILED_ATTEMPTS = 5
 const ATTEMPT_WINDOW_MS = 60_000
