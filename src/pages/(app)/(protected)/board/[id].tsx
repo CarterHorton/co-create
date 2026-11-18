@@ -17,6 +17,7 @@ import { ShareMenu } from '@/components/sharing/ShareMenu'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
+import { useTemplateSeed } from '@/templates/seed'
 
 interface Board {
   title: string
@@ -67,6 +68,7 @@ export default function BoardPage() {
 /** Board + call + history for one board (keyed by board, so state resets per board). */
 function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: string; userName: string }) {
   const store = useBoard(boardId)
+  useTemplateSeed(boardId, store)
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
