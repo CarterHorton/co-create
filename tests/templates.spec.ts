@@ -7,6 +7,7 @@
  */
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import type { Page } from '@playwright/test'
+import { boardIdFrom, deleteBoard } from './helpers/boards'
 
 /** Templates are sized for a laptop screen (see src/templates/templates.ts). */
 const LAPTOP = { width: 1440, height: 900 }
@@ -147,10 +148,9 @@ test.describe('signed in', () => {
     await second.close()
 
     // The choice resets to Blank for the next board; clean up this one.
+    const boardId = boardIdFrom(page)
     await page.goto('/home')
     await expect(page.getByTestId('template-choose')).toHaveAccessibleName(/Template: Blank/)
-    await page.getByRole('button', { name: `Delete ${title}` }).click()
-    await page.getByRole('button', { name: 'Delete board' }).click()
-    await expect(page.getByRole('link', { name: new RegExp(title) })).toHaveCount(0, { timeout: 15_000 })
+    await deleteBoard(page, boardId)
   })
 })

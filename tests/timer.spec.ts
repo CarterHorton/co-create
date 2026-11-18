@@ -5,6 +5,7 @@
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import type { Page } from '@playwright/test'
 import { shareBoard } from './helpers/share'
+import { boardIdFrom, deleteBoard } from './helpers/boards'
 
 /** Seconds shown on the header countdown ("04:58" → 298). */
 async function shownSeconds(page: Page): Promise<number> {
@@ -67,9 +68,6 @@ test.describe('shared board timer', () => {
     await expect(a.page.getByTestId('timer-open')).toHaveAttribute('data-status', 'idle', { timeout: 15_000 })
 
     // Deleting the board also deletes its timer row (boardDelete cascade).
-    await a.page.goto('/home')
-    await a.page.getByRole('button', { name: `Delete ${title}` }).click()
-    await a.page.getByRole('button', { name: 'Delete board' }).click()
-    await expect(a.page.getByRole('button', { name: `Delete ${title}` })).toHaveCount(0, { timeout: 15_000 })
+    await deleteBoard(a.page, boardIdFrom(a.page))
   })
 })
