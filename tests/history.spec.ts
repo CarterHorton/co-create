@@ -4,6 +4,7 @@
  */
 import { test as base, expect as baseExpect, type Page } from '@playwright/test'
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
+import { shareBoard } from './helpers/share'
 
 async function addSticky(page: Page, x: number, y: number, text: string) {
   await page.getByTestId('board-viewport').dblclick({ position: { x, y } })
@@ -68,6 +69,7 @@ test.describe('shared board history', () => {
     await a.page.getByTestId('board-title-input').fill(`History board ${Date.now()}`)
     await a.page.getByTestId('board-create').click()
     await expect(a.page.getByTestId('board-page')).toBeVisible({ timeout: 15_000 })
+    await shareBoard(a, b, a.page.url())
     await expect(a.page.getByTestId('board-connection')).toHaveText(/Live/, { timeout: 15_000 })
     await b.page.goto(a.page.url())
     await expect(b.page.getByTestId('board-connection')).toHaveText(/Live/, { timeout: 15_000 })

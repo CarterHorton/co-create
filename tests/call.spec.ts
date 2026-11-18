@@ -6,6 +6,7 @@
  * Run: npx deepspace test run tests/call.spec.ts
  */
 import { test, expect, loadAllTestAccounts, chromiumLaunchOptions } from 'deepspace/testing'
+import { shareBoard } from './helpers/share'
 
 test.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts — see collab.spec.ts.')
 
@@ -24,6 +25,8 @@ test('two users join the board call and see each other', async ({ users }) => {
   await a.page.goto('/home')
   await a.page.getByTestId('board-title-input').fill(`Call board ${Date.now()}`)
   await a.page.getByTestId('board-create').click()
+  await expect(a.page.getByTestId('board-page')).toBeVisible({ timeout: 15_000 })
+  await shareBoard(a, b, a.page.url())
   await expect(a.page.getByTestId('board-page')).toBeVisible({ timeout: 15_000 })
   await b.page.goto(a.page.url())
   await expect(b.page.getByTestId('board-page')).toBeVisible({ timeout: 15_000 })

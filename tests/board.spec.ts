@@ -5,6 +5,7 @@
  *   npx deepspace test run board
  */
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
+import { shareBoard } from './helpers/share'
 
 test.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts — see collab.spec.ts.')
 
@@ -18,6 +19,7 @@ test('a sticky added by one user appears, moves, and updates for the other', asy
   await a.page.getByTestId('board-create').click()
   await expect(a.page.getByTestId('board-page')).toBeVisible({ timeout: 15_000 })
   const boardUrl = a.page.url()
+  await shareBoard(a, b, boardUrl)
 
   // B opens the same board.
   await b.page.goto(boardUrl)
