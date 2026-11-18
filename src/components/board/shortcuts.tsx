@@ -27,6 +27,12 @@ export const SHORTCUTS = {
   zoomOut: ['−'],
   zoomReset: ['0'],
   pan: ['Space', 'Drag'],
+  // Keyboard-only editing (the canvas's screen-reader instructions list these too).
+  nextShape: ['Tab'],
+  editText: ['Enter'],
+  moveShape: ['Arrows'],
+  resizeShape: ['Alt', 'Arrows'],
+  connect: ['C'],
 } as const
 
 export type ShortcutId = keyof typeof SHORTCUTS
@@ -40,6 +46,7 @@ export function formatKeys(keys: readonly string[]): string {
   const parts = keys.map((k) => {
     if (k === 'Mod') return mac ? '⌘' : 'Ctrl'
     if (k === 'Shift') return mac ? '⇧' : 'Shift'
+    if (k === 'Alt') return mac ? '⌥' : 'Alt'
     return k
   })
   return mac ? parts.join('') : parts.join('+')
