@@ -66,6 +66,8 @@ import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import { kindName, panToShow, readingOrder, shapeName } from './a11y'
 import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
 import { LiveRegion, useAnnouncer } from './LiveRegion'
+import { useFollow } from './useFollow'
+import { FollowBanner, PresenceAvatars } from './FollowControls'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -554,6 +556,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     return () => ro.disconnect()
   }, [])
 
+  /** Follow a collaborator's view (signed-in boards). */
+  const followMode = useFollow({ presence, cam, setCam, viewSize, say })
+
   // ── Wheel (needs a non-passive listener to preventDefault) ─────────────
 
   useEffect(() => {
@@ -950,18 +955,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       {/* Status + presence */}
       {/* Second row on normal widths so it never collides with the toolbar; shares the top row on very wide screens. */}
       <div className="absolute right-4 top-[68px] z-20 flex items-center gap-3 min-[1600px]:top-4">
-        <div className="flex -space-x-1">
-          {peers.map((p) => (
-            <span
-              key={p.userId}
-              title={p.userName}
-              className="flex size-7 items-center justify-center border border-foreground text-xs font-bold text-white"
-              style={{ background: getUserColor(p.userId) }}
-            >
-              {(p.userName?.[0] ?? '?').toUpperCase()}
-            </span>
-          ))}
-        </div>
+        <PresenceAvatars peers={peers} f={followMode} />
         <Hint label="Outline the sections the export will use" shortcut="sections">
         <button
           type="button"
@@ -1040,6 +1034,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </p>
       )}
 
+      <FollowBanner f={followMode} />
       <LiveRegion message={announcement} testId="board-announcer" />
       <p id={instructionsId} className="sr-only">
         Tab moves through the shapes from top to bottom and left to right; arrows come last. Focusing a shape selects it.
