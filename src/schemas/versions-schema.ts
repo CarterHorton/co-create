@@ -1,7 +1,8 @@
 /**
  * Versions — the board's Git-style history. Each record is a full snapshot
  * of the board's shapes (boards are small) plus a summary of what changed.
- * Versions are append-only: members can read and add, nobody edits them.
+ * Versions are append-only: people on the board can read them and add them
+ * (through the versionCreate action); nobody edits them.
  */
 
 import type { CollectionSchema } from 'deepspace/schema'
@@ -18,9 +19,11 @@ export const versionsSchema: CollectionSchema = {
   ],
   // Visible only to people on the board (see team_members in sharing-schema.ts).
   teamField: 'boardId',
+  // Rows are created only by the `versionCreate` action (src/actions/history.ts), which
+  // checks the caller can open the board; a client create could name any boardId.
   permissions: {
     viewer: { read: 'team', create: false, update: false, delete: false },
-    member: { read: 'team', create: true, update: false, delete: false },
-    admin: { read: 'team', create: true, update: false, delete: true },
+    member: { read: 'team', create: false, update: false, delete: false },
+    admin: { read: 'team', create: false, update: false, delete: true },
   },
 }

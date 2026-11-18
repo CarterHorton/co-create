@@ -5,7 +5,8 @@
 
 import { Link, useParams } from 'react-router-dom'
 import { useMemo } from 'react'
-import { useMutations, usePresenceRoom, useQuery, useUser } from 'deepspace'
+import { usePresenceRoom, useQuery, useUser } from 'deepspace'
+import { callAction } from '@/lib/actions'
 import type { SpecPublisher } from '@/components/board/ExportDialog'
 import { ArrowLeft, History } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
@@ -70,15 +71,15 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
   const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
-  const { createConfirmed: createSpec } = useMutations<{ boardId: string; title: string; markdown: string; authorName: string }>('specs')
   const publisher = useMemo<SpecPublisher>(
     () => ({
       publish: async ({ title: t, markdown }) => {
-        await createSpec({ boardId, title: t, markdown, authorName: userName })
+        // Server-side, so the board's access is checked (src/actions/history.ts).
+        await callAction('specPublish', { boardId, title: t, markdown })
       },
       fetchCommand: `npx deepspace agent invoke co-create spec_get --input '{"boardId":"${boardId}"}' --json`,
     }),
-    [createSpec, boardId, userName],
+    [boardId],
   )
 
   return (
