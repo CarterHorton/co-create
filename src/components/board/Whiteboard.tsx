@@ -1682,7 +1682,7 @@ function SelectionBar({
   const assign = () => {
     if (name.trim()) onAssign(name.trim(), sub.trim() || null)
   }
-  const field = 'h-8 border border-input bg-background px-2 text-sm outline-none focus-visible:border-royal/50'
+  const field = 'h-8 border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
   return (
     <div
       ref={barRef}
