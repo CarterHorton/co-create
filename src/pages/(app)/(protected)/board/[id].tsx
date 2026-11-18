@@ -17,6 +17,7 @@ import { ShareMenu } from '@/components/sharing/ShareMenu'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
+import { useBoardComments } from '@/comments/useBoardComments'
 
 interface Board {
   title: string
@@ -59,14 +60,29 @@ export default function BoardPage() {
         boardId={board.recordId}
         title={board.data.title}
         userName={user?.name || user?.email || 'Someone'}
+        userId={user?.id ?? ''}
+        isOwner={!!user && board.data.ownerId === user.id}
       />
     </div>
   )
 }
 
 /** Board + call + history for one board (keyed by board, so state resets per board). */
-function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: string; userName: string }) {
+function BoardWorkspace({
+  boardId,
+  title,
+  userName,
+  userId,
+  isOwner,
+}: {
+  boardId: string
+  title: string
+  userName: string
+  userId: string
+  isOwner: boolean
+}) {
   const store = useBoard(boardId)
+  const comments = useBoardComments({ boardId, userId, isOwner, shapes: store.shapes })
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
@@ -93,10 +109,12 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             presence={presence}
             statusLabel={v.preview ? 'Viewing past version' : undefined}
             publisher={publisher}
+            comments={v.preview ? undefined : comments.bridge}
           />
         </div>
       </div>
       <BoardSidebar
+        select={comments.select}
         panes={[
           { id: 'call', label: 'Call', content: <CallRail boardId={boardId} displayName={userName} /> },
           {
@@ -107,6 +125,7 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             closable: true,
             Icon: History,
           },
+          comments.pane,
         ]}
       />
     </div>

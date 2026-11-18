@@ -64,6 +64,7 @@ import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } fr
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import { kindName, panToShow, readingOrder, shapeName } from './a11y'
+import { CommentButton, CommentsLayer, useCommentsBridge, type CommentsBridge } from '@/comments/WhiteboardComments'
 import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
 import { LiveRegion, useAnnouncer } from './LiveRegion'
 import {
@@ -159,11 +160,13 @@ interface WhiteboardProps {
   statusLabel?: string
   /** Lets the export dialog publish the spec for agents (signed-in boards). */
   publisher?: SpecPublisher
+  /** Comment badges, the Comment action and panning to threads (signed-in boards). */
+  comments?: CommentsBridge
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher, comments }: WhiteboardProps) {
   const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
@@ -277,6 +280,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const activeId = editingId ?? (selectedSet.size === 1 ? [...selectedSet][0] : null)
   const active = activeId ? byId.get(activeId) : undefined
   const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
+  useCommentsBridge(comments, { active: editingId ? undefined : active, byId, focusShape })
   const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
   /** Section names on the board → the subsection names used in each (first spelling wins). */
   const sectionNames = useMemo(() => {
@@ -1010,6 +1014,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           onUngroup={() => assignSection(null)}
           onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
+          extra={
+            comments && selectedNotes.length === 1 ? (
+              <CommentButton onClick={() => comments.onComment(selectedNotes[0].id, shapeName(selectedNotes[0], byId))} />
+            ) : undefined
+          }
         />
       )}
 
@@ -1215,6 +1224,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           })}
         </div>
       </div>
+
+      {comments && (
+        <CommentsLayer
+          bridge={comments}
+          cam={cam}
+          view={viewSize}
+          shapes={shapes}
+          byId={byId}
+          active={active}
+          showBar={!canWrite && !editingId && tool === 'select' && selectedSet.size === 1}
+        />
+      )}
 
       {connectSource && (
         <ConnectMenu
@@ -1642,6 +1663,7 @@ function SelectionBar({
   onUngroup,
   onRestyle,
   onDelete,
+  extra,
 }: {
   /** The selection's on-screen left edge, top and bottom (viewport px). */
   anchor: { left: number; top: number; bottom: number }
@@ -1654,6 +1676,8 @@ function SelectionBar({
   onUngroup: () => void
   onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
   onDelete: () => void
+  /** More actions, before Delete (e.g. Comment). */
+  extra?: React.ReactNode
 }) {
   const [colorsOpen, setColorsOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
@@ -1772,6 +1796,7 @@ function SelectionBar({
         <Palette className="size-3.5" /> Color
       </button>
       {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
+      {extra}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"
