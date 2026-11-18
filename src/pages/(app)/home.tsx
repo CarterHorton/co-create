@@ -8,7 +8,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, useMutations, useQuery, ROLES } from 'deepspace'
 import { ArrowRight, Trash2 } from 'lucide-react'
-import { Button, Input, useToast } from '@/components/ui'
+import { Button, ConfirmModal, Input, useToast } from '@/components/ui'
 import { PartyPanel } from '@/components/sharing/PartyPanel'
 import { callAction } from '@/lib/actions'
 
@@ -57,14 +57,22 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
   const { createConfirmed } = useMutations<Board>('boards')
   const [title, setTitle] = useState('')
   const [creating, setCreating] = useState(false)
+  // The target outlives `deleteOpen` so the title stays put while the dialog animates out.
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const canCreate = role !== ROLES.VIEWER
 
   /** Server-side so the board's versions, specs, access rows and canvas go too. */
   async function deleteBoard(boardId: string) {
+    setDeleting(true)
     try {
       await callAction('boardDelete', { boardId })
     } catch (err) {
       error('Could not delete board', err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeleting(false)
+      setDeleteOpen(false)
     }
   }
 
@@ -136,7 +144,8 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
                     type="button"
                     aria-label={`Delete ${b.data.title}`}
                     onClick={() => {
-                      if (confirm(`Delete "${b.data.title}"? This can't be undone.`)) void deleteBoard(b.recordId)
+                      setPendingDelete({ id: b.recordId, title: b.data.title })
+                      setDeleteOpen(true)
                     }}
                     className="absolute right-12 top-1/2 -translate-y-1/2 p-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                   >
@@ -148,6 +157,18 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
           })}
         </ul>
       )}
+
+      <ConfirmModal
+        open={deleteOpen}
+        onClose={() => {
+          if (!deleting) setDeleteOpen(false)
+        }}
+        onConfirm={() => pendingDelete && void deleteBoard(pendingDelete.id)}
+        title={`Delete "${pendingDelete?.title ?? ''}"?`}
+        description="Its canvas, history and specs are deleted too, and everyone you sent it to loses access. This can't be undone."
+        confirmText="Delete board"
+        loading={deleting}
+      />
     </div>
   )
 }

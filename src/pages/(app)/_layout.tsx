@@ -32,8 +32,14 @@ export default function AppLayout() {
       <title>{APP_NAME}</title>
       <AuthBoot>
         <div className="flex h-screen flex-col bg-background overflow-hidden">
+          <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            Skip to main content
+          </a>
           <Navigation />
-          <main className="flex-1 overflow-y-auto min-h-0">
+          <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto min-h-0 focus:outline-none">
             <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">Loading...</div>}>
               <Outlet />
             </Suspense>
