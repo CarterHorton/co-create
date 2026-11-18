@@ -36,4 +36,6 @@ export interface BoardStore {
 export interface BoardPresence {
   peers: { userId: string; userName: string; state: Record<string, unknown> }[]
   updateState: (state: Record<string, unknown>) => void
+  /** The presence socket is open (updates sent while closed are dropped). */
+  connected?: boolean
 }
