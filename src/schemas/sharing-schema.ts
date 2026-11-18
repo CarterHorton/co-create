@@ -26,6 +26,8 @@ export const teamMembersSchema: CollectionSchema = {
     { name: 'status', storage: 'text', interpretation: 'plain' },
     { name: 'name', storage: 'text', interpretation: 'plain' },
     { name: 'role', storage: 'text', interpretation: 'plain' },
+    /** board_links recordId when this person joined through a view-only link (src/actions/links.ts). */
+    { name: 'viaLink', storage: 'text', interpretation: 'plain' },
   ],
   uniqueOn: ['teamId', 'userId'],
   teamField: 'teamId',

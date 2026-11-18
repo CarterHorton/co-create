@@ -10,4 +10,6 @@ export interface TeamMember {
   status?: string
   name?: string
   role?: string
+  /** Set when they joined through a view-only link (its board_links recordId). */
+  viaLink?: string
 }

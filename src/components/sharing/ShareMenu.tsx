@@ -9,6 +9,7 @@ import { Share2, X } from 'lucide-react'
 import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@/components/ui'
 import { callAction } from '@/lib/actions'
 import type { Friendship, TeamMember } from './types'
+import { ShareLinks } from './ShareLinks'
 
 export function ShareMenu({ boardId, userId, isOwner }: { boardId: string; userId: string; isOwner: boolean }) {
   const { error } = useToast()
@@ -49,7 +50,10 @@ export function ShareMenu({ boardId, userId, isOwner }: { boardId: string; userI
           <ul className="mb-4 space-y-1">
             {others.map((m) => (
               <li key={m.recordId} className="flex items-center justify-between gap-2 text-sm" data-testid={`share-member-${m.data.userId}`}>
-                <span className="truncate">{m.data.userId === userId ? 'You' : m.data.name || 'Someone'}</span>
+                <span className="truncate">
+                  {m.data.userId === userId ? 'You' : m.data.name || 'Someone'}
+                  {m.data.role === 'viewer' && <span className="text-xs text-muted-foreground"> · view only</span>}
+                </span>
                 {isOwner && (
                   <Button
                     variant="ghost"
@@ -95,6 +99,7 @@ export function ShareMenu({ boardId, userId, isOwner }: { boardId: string; userI
             )}
           </>
         )}
+        {isOwner && <ShareLinks boardId={boardId} />}
       </PopoverContent>
     </Popover>
   )
