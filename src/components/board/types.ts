@@ -6,7 +6,7 @@
 
 import type { CanvasShapeClient } from 'deepspace'
 
-export type ShapeKind = 'sticky' | 'box' | 'text' | 'arrow'
+export type ShapeKind = 'sticky' | 'box' | 'text' | 'arrow' | 'entity'
 export type BoardShape = CanvasShapeClient
 
 /** How an arrow is drawn between its two shapes. */
