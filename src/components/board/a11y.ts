@@ -5,8 +5,10 @@
  */
 
 import type { BoardShape } from './types'
+import { frameLabel } from './frame'
+import { stickyKindName } from './noteTypes'
 
-const KIND_NAMES: Record<string, string> = { sticky: 'Sticky note', box: 'Box', text: 'Text', arrow: 'Arrow' }
+const KIND_NAMES: Record<string, string> = { sticky: 'Sticky note', box: 'Box', text: 'Text', arrow: 'Arrow', frame: 'Frame' }
 
 /** Shape text without line breaks, shortened for a label. */
 function shortText(s: BoardShape, max = 80): string {
@@ -34,8 +36,10 @@ export function shapeName(s: BoardShape, byId: Map<string, BoardShape>): string 
   if (s.type === 'arrow') {
     return `Arrow from ${endName(byId.get(String(s.props.from)))} to ${endName(byId.get(String(s.props.to)))}`
   }
+  if (s.type === 'frame') return frameLabel(s, byId.values())
   const text = shortText(s)
-  return text ? `${kindName(s)}: ${text}` : `${kindName(s)} (empty)`
+  const kind = s.type === 'sticky' ? stickyKindName(s) : kindName(s) // "Question sticky note"
+  return text ? `${kind}: ${text}` : `${kind} (empty)`
 }
 
 /**

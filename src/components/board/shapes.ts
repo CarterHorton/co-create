@@ -67,6 +67,7 @@ export const DEFAULT_SIZE: Record<Exclude<ShapeKind, 'arrow'>, { width: number; 
   sticky: { width: 180, height: 180 },
   box: { width: 220, height: 120 },
   text: { width: 260, height: 48 },
+  frame: { width: 480, height: 320 },
 }
 
 export const MIN_SIZE = 40

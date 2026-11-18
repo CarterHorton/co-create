@@ -15,6 +15,9 @@
  */
 
 import type { BoardShape } from '@/components/board/types'
+import { frameMembership, isFrame } from '@/components/board/frame'
+import { specPrefix } from '@/components/board/noteTypes'
+import { sectionKeyOf, typeSummaries } from './frames'
 
 export interface SpecOptions {
   /** Max distance (canvas px) between two notes' edges to group them. */
@@ -162,7 +165,10 @@ function topoOrder<T>(items: T[], edges: [T, T][], earliest: (a: T, b: T) => num
 }
 
 export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): SpecSection[] {
-  const nodes = shapes.filter((s) => s.type !== 'arrow' && textOf(s))
+  // Frames are section titles (an unnamed, empty one says nothing and is left out).
+  const frameOf = frameMembership(shapes)
+  const framed = new Set([...frameOf.values()].map((f) => f.id))
+  const nodes = shapes.filter((s) => s.type !== 'arrow' && (isFrame(s) ? textOf(s) || framed.has(s.id) : textOf(s)))
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const arrows = shapes
     .filter((s) => s.type === 'arrow')
@@ -172,16 +178,16 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
   // Named sections first (case-insensitive; the first spelling wins), then proximity for the rest.
   const named = new Map<string, { name: string; shapes: BoardShape[] }>()
   for (const n of [...nodes].sort(byTime)) {
-    const name = sectionNameOf(n)
-    if (!name) continue
-    const key = name.toLowerCase()
+    const sk = sectionKeyOf(n, frameOf)
+    if (!sk) continue
+    const { key, name } = sk
     if (!named.has(key)) named.set(key, { name, shapes: [] })
     named.get(key)!.shapes.push(n)
   }
   const groups: { name?: string; shapes: BoardShape[] }[] = [
     ...named.values(),
     ...clusterByProximity(
-      nodes.filter((n) => !sectionNameOf(n)),
+      nodes.filter((n) => !sectionKeyOf(n, frameOf)),
       opts.gap ?? DEFAULT_GAP,
     ).map((shapes) => ({ shapes })),
   ]
@@ -190,7 +196,7 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
     group = [...group].sort(byTime)
     // A named section's own label ("Authentication" written on the board) is its title, not a note.
     const label = name
-      ? group.find((s) => s.type === 'text' && headlineOf(s).toLowerCase() === name.toLowerCase())
+      ? (group.find(isFrame) ?? group.find((s) => s.type === 'text' && headlineOf(s).toLowerCase() === name.toLowerCase()))
       : (group.find((s) => s.type === 'text') ?? group.find((s) => s.type === 'box'))
     let title: string
     let intro: string[] = []
@@ -203,6 +209,7 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
         titleShape = label
         rest = group.filter((s) => s !== label)
       }
+      rest = rest.filter((s) => !isFrame(s)) // more frames of the same name: titles, not notes
     } else if (label) {
       titleShape = label
       title = headlineOf(label)
@@ -492,7 +499,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
         written.forEach(count)
         // Loops go on the note's own line so they can't be mistaken for an option or part.
         const loops = written.filter((w) => w.loop).map((w) => w.text)
-        lines.push(`${pad}${marker} ${n.head}${loops.length ? ` (${loops.join('; ')})` : ''}`)
+        lines.push(`${pad}${marker} ${specPrefix(n.shape)}${n.head}${loops.length ? ` (${loops.join('; ')})` : ''}`)
         const inner = pad + ' '.repeat(marker.length + 1)
         for (const item of n.items) lines.push(`${inner}- ${item}`)
         for (const k of p.L.childrenOf.get(n.shape.id) ?? []) render(noteById.get(k)!, inner, '-')
@@ -575,6 +582,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     }
     out.push('')
   }
+  out.push(...typeSummaries(sections))
   return out.join('\n')
 }
 
