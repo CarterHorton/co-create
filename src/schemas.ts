@@ -19,6 +19,7 @@ import {
   friendshipsSchema,
   teamMembersSchema,
 } from './schemas/sharing-schema'
+import { boardPinsSchema, projectGrantsSchema, projectMembersSchema, projectsSchema } from './schemas/projects-schema'
 
 export const schemas: CollectionSchema[] = [
   usersSchema,
@@ -30,4 +31,8 @@ export const schemas: CollectionSchema[] = [
   friendshipsSchema,
   friendCodesSchema,
   friendCodeAttemptsSchema,
+  projectsSchema,
+  projectMembersSchema,
+  projectGrantsSchema,
+  boardPinsSchema,
 ]

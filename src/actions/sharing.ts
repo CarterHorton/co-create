@@ -25,20 +25,20 @@ export const FRIEND_CODE_TTL_MS = 5 * 60_000
 const MAX_FAILED_ATTEMPTS = 5
 const ATTEMPT_WINDOW_MS = 60_000
 
-type Row<T> = { recordId: string; createdBy: string; data: T }
+export type Row<T> = { recordId: string; createdBy: string; data: T }
 
 type FriendCode = {
   code: string
   ownerId: string
   expiresAt: number
 }
-type BoardRow = {
+export type BoardRow = {
   title: string
   ownerId: string
   teamId?: string
   accessVersion?: number
 }
-type TeamMember = {
+export type TeamMember = {
   teamId: string
   userId: string
   status?: string
@@ -61,7 +61,7 @@ export function normalizeCode(raw: unknown): string | null {
   return /^[0-9A-F]{8}$/.test(code) ? code : null
 }
 
-async function queryAll<T extends Record<string, unknown>>(
+export async function queryAll<T extends Record<string, unknown>>(
   tools: ActionTools,
   collection: string,
   where: Record<string, unknown>,
@@ -78,7 +78,7 @@ async function userName(tools: ActionTools, userId: string): Promise<string> {
   return res.data.record.data.name || res.data.record.data.email || 'Someone'
 }
 
-async function areFriends(tools: ActionTools, a: string, b: string): Promise<boolean> {
+export async function areFriends(tools: ActionTools, a: string, b: string): Promise<boolean> {
   return (await queryAll(tools, 'friendships', { ownerId: a, friendId: b }, 1)).length > 0
 }
 
@@ -88,7 +88,7 @@ async function addFriendship(tools: ActionTools, ownerId: string, friendId: stri
   if (!res.success) throw new Error(res.error)
 }
 
-async function loadOwnedBoard(
+export async function loadOwnedBoard(
   tools: ActionTools,
   userId: string,
   boardId: unknown,
@@ -102,7 +102,7 @@ async function loadOwnedBoard(
   return { ...res.data.record, recordId: boardId } as Row<BoardRow>
 }
 
-async function addMember(tools: ActionTools, boardId: string, userId: string, role: 'owner' | 'editor') {
+export async function addMember(tools: ActionTools, boardId: string, userId: string, role: 'owner' | 'editor') {
   const existing = await queryAll<TeamMember>(tools, 'team_members', { teamId: boardId, userId }, 1)
   if (existing.length) return
   const name = await userName(tools, userId)
@@ -111,7 +111,7 @@ async function addMember(tools: ActionTools, boardId: string, userId: string, ro
 }
 
 /** Re-save the board so every open board list re-checks who can see it. */
-async function touchBoard(tools: ActionTools, board: Row<BoardRow>) {
+export async function touchBoard(tools: ActionTools, board: Row<BoardRow>) {
   const res = await tools.update('boards', board.recordId, {
     teamId: board.recordId,
     accessVersion: (board.data.accessVersion ?? 0) + 1,
