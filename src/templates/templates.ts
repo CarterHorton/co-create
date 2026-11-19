@@ -39,12 +39,12 @@ export interface BoardTemplate {
  * 1150×660 on a 1440×900 screen, beside the sidebar) clear of the floating
  * controls (see VIEW_MARGIN in ./instantiate.ts), with room above every shape
  * for the section tag the board draws there. One-line prompts (≤ 28
- * characters) go in 64px-high notes; longer ones get 88px.
+ * characters) go in 60px-high notes; longer ones get 88px.
  */
 const LABEL_H = 40
 /** Vertical space between shapes: the section tag sits in it. */
-const ROW_GAP = 24
-const ONE_LINE = { width: 280, height: 64 }
+const ROW_GAP = 30
+const ONE_LINE = { width: 280, height: 60 }
 
 const keyOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
@@ -87,7 +87,7 @@ function rows(sections: { name: string; prompts: string[] }[]): TemplateShape[] 
     const y = r * (size.height + ROW_GAP)
     shapes.push(label(name, 0, y + (size.height - LABEL_H) / 2, LABEL_W))
     prompts.forEach((p, i) =>
-      shapes.push(note(`${keyOf(name)}-${i + 1}`, name, p, LABEL_W + 24 + i * (size.width + 16), y, size)),
+      shapes.push(note(`${keyOf(name)}-${i + 1}`, name, p, LABEL_W + 32 + i * (size.width + 24), y, size)),
     )
   })
   return [...shapes, ...chain(sections.map((s) => s.name))]
@@ -98,7 +98,7 @@ function columns(sections: { name: string; prompts: string[] }[]): TemplateShape
   const size = { width: 240, height: 88 }
   const shapes: TemplateShape[] = []
   sections.forEach(({ name, prompts }, c) => {
-    const x = c * (size.width + 24)
+    const x = c * (size.width + 32)
     shapes.push(label(name, x, 0, size.width))
     prompts.forEach((p, i) =>
       shapes.push(note(`${keyOf(name)}-${i + 1}`, name, p, x, LABEL_H + ROW_GAP + i * (size.height + ROW_GAP), size)),
@@ -122,7 +122,7 @@ function storyMap(): TemplateShape[] {
   ]
   // Five columns: narrower, two-line notes.
   const size = { width: 200, height: 88 }
-  const stride = size.width + 20
+  const stride = size.width + 25
   const SUB_H = 40
   const shapes: TemplateShape[] = [
     label(who, 0, 0, size.width),
