@@ -52,7 +52,7 @@ export function ShareMenu({ boardId, userId, isOwner }: { boardId: string; userI
               <li key={m.recordId} className="flex items-center justify-between gap-2 text-sm" data-testid={`share-member-${m.data.userId}`}>
                 <span className="truncate">
                   {m.data.userId === userId ? 'You' : m.data.name || 'Someone'}
-                  {m.data.role === 'viewer' && <span className="text-xs text-muted-foreground"> · view only</span>}
+                  {m.data.role === 'viewer' && <span className="text-xs text-muted-foreground"> Â· view only</span>}
                 </span>
                 {isOwner && (
                   <Button
