@@ -1062,9 +1062,6 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
           }}
           view={viewSize}
           shapes={selectedNotes}
-          sectionNames={sectionNames}
-          onAssign={(name, sub) => assignSection(name, sub)}
-          onUngroup={() => assignSection(null)}
           onRestyle={restyle}
           onDelete={() => removeMany(selectedSet)}
           onNoteType={setNoteType}
@@ -1074,6 +1071,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
             ) : undefined
           }
           extra={votes && voteTarget && <VoteButton shapeId={voteTarget.id} votes={votes} />}
+        />
+      )}
+      {canWrite && selectedNotes.length > 0 && !editingId && tool === 'select' && (
+        <SectionBar
+          // Distinct from the SelectionBar's key: sibling keys must differ, or
+          // React keeps stale copies of the bars around.
+          key={`section:${selectedNotes.map((x) => x.id).join(',')}`}
+          viewWidth={viewSize.width}
+          shapes={selectedNotes}
+          sectionNames={sectionNames}
+          onAssign={(name, sub) => assignSection(name, sub)}
+          onUngroup={() => assignSection(null)}
         />
       )}
       {/* People who can't edit get no selection bar, but can still vote. */}
@@ -1763,64 +1772,30 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
 }
 
 /**
- * Floating bar for the current selection: name a section (and optionally a
- * subsection within it, e.g. Front-end › Login page) and assign the selected
- * shapes to it (they become one section in the export, wherever they sit),
- * remove them from their section, or delete them.
+ * Bar centred at the bottom of the board for the current selection: name a
+ * section (and optionally a subsection within it, e.g. Front-end › Login page)
+ * and assign the selected shapes to it (they become one section in the export,
+ * wherever they sit), or remove them from their section. Kept out of the
+ * floating selection bar so that stays small next to the selection.
  */
-/** Space between the selection and the bar: clears the section tag drawn above a note. */
-const BAR_GAP = 28
-/** Keep the bar below the toolbar row. */
-const BAR_MIN_TOP = 72
+/** Board width that fits the section bar (~520px) centred between two zoom-control widths. */
+const SECTION_BAR_ROOM = 900
 
-function SelectionBar({
-  anchor,
-  view,
+function SectionBar({
+  viewWidth,
   shapes,
   sectionNames,
   onAssign,
   onUngroup,
-  onRestyle,
-  onDelete,
-  onNoteType,
-  actions,
-  extra,
 }: {
-  /** The selection's on-screen left edge, top and bottom (viewport px). */
-  anchor: { left: number; top: number; bottom: number }
-  /** Viewport size, to keep the bar on screen. */
-  view: { width: number; height: number }
+  /** The board viewport's width. */
+  viewWidth: number
   shapes: BoardShape[]
   /** Section name → subsection names already used in it. */
   sectionNames: Map<string, string[]>
   onAssign: (name: string, subsection: string | null) => void
   onUngroup: () => void
-  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
-  onDelete: () => void
-  onNoteType: (t: NoteType) => void
-  /** More controls, after the count (e.g. voting). */
-  extra?: ReactNode
-  /** More actions, before Delete (e.g. Comment). */
-  actions?: ReactNode
 }) {
-  const [colorsOpen, setColorsOpen] = useState(false)
-  const barRef = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ width: 0, height: 0 })
-  useLayoutEffect(() => {
-    const el = barRef.current
-    if (!el) return
-    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
-  const above = anchor.top - BAR_GAP - size.height
-  const below = above < BAR_MIN_TOP
-  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
-  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
-  const left = clamp(anchor.left, 16, view.width - size.width - 16)
   const current = new Set(shapes.map(sectionNameOf))
   const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
@@ -1833,18 +1808,18 @@ function SelectionBar({
   const field = 'h-8 border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
   return (
     <div
-      ref={barRef}
-      data-testid="selection-bar"
-      data-placement={below ? 'below' : 'above'}
-      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
-      style={{ left, top }}
+      data-testid="section-bar"
+      role="group"
+      aria-label={`Section for ${shapes.length} selected`}
+      // Centred at the bottom. On a narrow board it would reach the zoom
+      // controls in the bottom-right corner, so it sits a row above them.
+      className={cn(
+        'absolute left-1/2 z-20 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]',
+        viewWidth < SECTION_BAR_ROOM ? 'bottom-16' : 'bottom-4',
+      )}
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
-        {shapes.length} selected
-      </span>
-      {extra}
       <form
         className="flex flex-wrap items-center gap-1"
         onSubmit={(e) => {
@@ -1891,7 +1866,7 @@ function SelectionBar({
           type="submit"
           data-testid="section-assign"
           disabled={!name.trim()}
-          className="h-8 bg-foreground px-3 text-xs font-bold uppercase tracking-[0.05em] text-background disabled:opacity-30"
+          className="h-8 bg-foreground px-3 text-xs font-bold uppercase tracking-[0.05em] text-background disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Assign
         </button>
@@ -1902,12 +1877,80 @@ function SelectionBar({
           type="button"
           data-testid="section-remove"
           onClick={onUngroup}
-          className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20"
+          className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           <Ungroup className="size-3.5" /> Ungroup
         </button>
         </Hint>
       )}
+    </div>
+  )
+}
+
+/**
+ * Floating bar next to the current selection: color, sticky note type,
+ * voting, comment, and delete. (Sections are in the SectionBar at the bottom.)
+ */
+/** Space between the selection and the bar: clears the section tag drawn above a note. */
+const BAR_GAP = 28
+/** Keep the bar below the toolbar row. */
+const BAR_MIN_TOP = 72
+
+function SelectionBar({
+  anchor,
+  view,
+  shapes,
+  onRestyle,
+  onDelete,
+  onNoteType,
+  actions,
+  extra,
+}: {
+  /** The selection's on-screen left edge, top and bottom (viewport px). */
+  anchor: { left: number; top: number; bottom: number }
+  /** Viewport size, to keep the bar on screen. */
+  view: { width: number; height: number }
+  shapes: BoardShape[]
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
+  onDelete: () => void
+  onNoteType: (t: NoteType) => void
+  /** More controls, after the count (e.g. voting). */
+  extra?: ReactNode
+  /** More actions, before Delete (e.g. Comment). */
+  actions?: ReactNode
+}) {
+  const [colorsOpen, setColorsOpen] = useState(false)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
+  const above = anchor.top - BAR_GAP - size.height
+  const below = above < BAR_MIN_TOP
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
+  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
+  const left = clamp(anchor.left, 16, view.width - size.width - 16)
+  return (
+    <div
+      ref={barRef}
+      data-testid="selection-bar"
+      data-placement={below ? 'below' : 'above'}
+      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      style={{ left, top }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
+        {shapes.length} selected
+      </span>
+      {extra}
       <button
         type="button"
         data-testid="selection-colors"
