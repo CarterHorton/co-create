@@ -1,15 +1,21 @@
 /**
- * Right-hand sidebar with tabs (Call, History, …). Every pane stays mounted
- * while hidden, so switching tabs never drops the call.
+ * Right-hand sidebar (Call, History, Votes, Comments, …). Every pane stays
+ * mounted while hidden, so switching panes never drops the call.
  *
- * A pane marked `closable` (History) has a × on its tab. It starts open;
- * closing it only hides it, and a button with its icon reopens it. When every
- * pane is closed the sidebar shrinks to a thin rail of those buttons, giving
- * the board the room.
+ * A hamburger menu picks the pane; the header shows its name. "Hide panel"
+ * folds the sidebar to a thin rail, giving the board the room; the rail's
+ * menu (or its expand button) brings it back.
  */
 
 import { useState, type ReactNode } from 'react'
-import { X, type LucideIcon } from 'lucide-react'
+import { Menu, PanelRightClose, PanelRightOpen, type LucideIcon } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui'
 import { cn } from '@/lib/utils'
 
 export interface SidebarPane {
@@ -17,11 +23,12 @@ export interface SidebarPane {
   label: string
   badge?: ReactNode
   content: ReactNode
-  /** Can be closed (and reopened) by the user. Starts open. */
-  closable?: boolean
-  /** Shown on the reopen button once closed. */
+  /** Shown next to the pane's name in the menu. */
   Icon?: LucideIcon
 }
+
+const iconButton =
+  'flex size-10 shrink-0 items-center justify-center hover:bg-royal/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
 
 export function BoardSidebar({
   panes,
@@ -30,116 +37,120 @@ export function BoardSidebar({
 }: {
   panes: SidebarPane[]
   initial?: string
-  /** Show (and reopen) this pane; a new object each time it should happen again. */
+  /** Show (and expand to) this pane; a new object each time it should happen again. */
   select?: { id: string } | null
 }) {
   const [active, setActive] = useState(initial ?? panes[0]?.id)
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
+  const [collapsed, setCollapsed] = useState(false)
   const [seenSelect, setSeenSelect] = useState(select)
   if (select !== seenSelect) {
     setSeenSelect(select)
     if (select) {
       setActive(select.id)
-      if (closed.has(select.id)) setClosed((prev) => new Set([...prev].filter((id) => id !== select.id)))
+      setCollapsed(false)
     }
   }
-  const open = panes.filter((p) => !closed.has(p.id))
-  const shut = panes.filter((p) => closed.has(p.id))
-  // If the active pane was closed, fall back to the first one still open.
-  const shown = open.some((p) => p.id === active) ? active : open[0]?.id
-  const rail = open.length === 0
-
-  const close = (id: string) => setClosed((prev) => new Set(prev).add(id))
-  const reopen = (id: string) => {
-    setClosed((prev) => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
-    })
+  // A pane can disappear (e.g. it's only offered to some people): fall back to the first.
+  const current = panes.find((p) => p.id === active) ?? panes[0]
+  const show = (id: string) => {
     setActive(id)
+    setCollapsed(false)
   }
 
-  const reopenButtons = shut.map((p) => {
-    const Icon = p.Icon
-    return (
-      <button
-        key={p.id}
-        type="button"
-        data-testid={`sidebar-open-${p.id}`}
-        aria-label={`Show ${p.label.toLowerCase()}`}
-        title={`Show ${p.label.toLowerCase()}`}
-        onClick={() => reopen(p.id)}
-        className={cn(
-          'flex items-center justify-center gap-1.5 font-mono text-xs font-semibold uppercase tracking-[0.05em] hover:bg-royal/20',
-          rail ? 'h-auto w-10 flex-col border-b border-border py-3 [writing-mode:vertical-rl]' : 'shrink-0 border-l border-border px-2.5',
-        )}
-      >
-        {Icon && <Icon className={cn('size-3.5', rail && 'rotate-90')} />}
-        {rail || !Icon ? p.label : null}
-        {p.badge}
-      </button>
-    )
-  })
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            data-testid="sidebar-menu"
+            aria-label={`Board panels: ${current?.label ?? ''}`}
+            title="Board panels"
+            className={iconButton}
+          >
+            <Menu className="size-4" aria-hidden />
+          </button>
+        }
+      />
+      <DropdownMenuContent align={collapsed ? 'end' : 'start'} className="w-56">
+        <DropdownMenuRadioGroup value={current?.id}>
+          {panes.map((p) => {
+            const Icon = p.Icon
+            return (
+              <DropdownMenuRadioItem
+                key={p.id}
+                value={p.id}
+                // Radio items keep the menu open by default; picking a panel should close it.
+                closeOnClick
+                onClick={() => show(p.id)}
+                data-testid={`sidebar-tab-${p.id}`}
+                className="gap-2"
+              >
+                {Icon && <Icon className="size-3.5" aria-hidden />}
+                <span className="flex-1">{p.label}</span>
+                {p.badge}
+              </DropdownMenuRadioItem>
+            )
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
   return (
     <aside
       data-testid="board-sidebar"
-      data-collapsed={rail || undefined}
-      className={cn('flex shrink-0 flex-col border-l border-border bg-background', rail ? 'w-10' : 'w-72')}
+      data-collapsed={collapsed || undefined}
+      aria-label="Board panels"
+      className={cn('flex shrink-0 flex-col border-l border-border bg-background', collapsed ? 'w-10' : 'w-72')}
     >
-      {rail ? (
-        reopenButtons
+      {collapsed ? (
+        <div className="flex flex-col items-center border-b border-border">
+          {menu}
+          <button
+            type="button"
+            data-testid="sidebar-expand"
+            aria-label={`Show ${current?.label.toLowerCase() ?? 'panel'}`}
+            title={`Show ${current?.label.toLowerCase() ?? 'panel'}`}
+            onClick={() => setCollapsed(false)}
+            className={iconButton}
+          >
+            <PanelRightOpen className="size-4" aria-hidden />
+          </button>
+        </div>
       ) : (
-        <div role="tablist" aria-label="Board panels" className="flex h-10 shrink-0 border-b border-border">
-          {open.map((p) => (
-            <div
-              key={p.id}
-              className={cn(
-                'flex min-w-0 flex-1 items-stretch border-r border-border last:border-r-0',
-                shown === p.id ? 'bg-foreground text-background' : 'hover:bg-royal/20',
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                id={`tab-${p.id}`}
-                data-testid={`sidebar-tab-${p.id}`}
-                aria-selected={shown === p.id}
-                aria-controls={`pane-${p.id}`}
-                onClick={() => setActive(p.id)}
-                className="flex flex-1 items-center justify-center gap-1.5 font-mono text-xs font-semibold uppercase tracking-[0.05em]"
-              >
-                {p.label}
-                {p.badge}
-              </button>
-              {p.closable && (
-                <button
-                  type="button"
-                  data-testid={`sidebar-close-${p.id}`}
-                  aria-label={`Close ${p.label.toLowerCase()}`}
-                  title={`Close ${p.label.toLowerCase()}`}
-                  onClick={() => close(p.id)}
-                  className="flex w-8 shrink-0 items-center justify-center opacity-70 hover:opacity-100"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-          {reopenButtons}
+        <div className="flex h-10 shrink-0 items-center border-b border-border">
+          {menu}
+          <h2
+            data-testid="sidebar-title"
+            className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-1 font-mono text-xs font-semibold uppercase tracking-[0.05em]"
+          >
+            {current?.label}
+            {current?.badge}
+          </h2>
+          <button
+            type="button"
+            data-testid="sidebar-collapse"
+            aria-label="Hide panel"
+            title="Hide panel"
+            onClick={() => setCollapsed(true)}
+            className={iconButton}
+          >
+            <PanelRightClose className="size-4" aria-hidden />
+          </button>
         </div>
       )}
       {panes.map((p) => (
-        <div
+        <section
           key={p.id}
           id={`pane-${p.id}`}
-          role="tabpanel"
-          aria-labelledby={`tab-${p.id}`}
-          hidden={rail || shown !== p.id}
+          data-testid={`sidebar-pane-${p.id}`}
+          aria-label={p.label}
+          hidden={collapsed || current?.id !== p.id}
           className="min-h-0 flex-1 flex-col [&:not([hidden])]:flex"
         >
           {p.content}
-        </div>
+        </section>
       ))}
     </aside>
   )

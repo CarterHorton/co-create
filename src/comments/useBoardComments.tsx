@@ -108,7 +108,6 @@ export function useBoardComments({
     id: COMMENTS_PANE,
     label: 'Comments',
     Icon: MessageSquare,
-    closable: true,
     badge: openCount ? (
       <span data-testid="comments-open-count" className="font-mono text-[10px]">
         {openCount}

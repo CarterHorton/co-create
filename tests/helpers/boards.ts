@@ -7,6 +7,13 @@ export function boardIdFrom(page: Page): string {
   return id
 }
 
+/** Show a board sidebar panel (Call, History, Votes, Comments) through its hamburger menu. */
+export async function openPanel(page: Page, id: string) {
+  await page.getByTestId('sidebar-menu').click()
+  await page.getByTestId(`sidebar-tab-${id}`).click()
+  await expect(page.getByTestId(`sidebar-pane-${id}`)).toBeVisible()
+}
+
 /**
  * Permanently delete a board you own from /home. Boards are archived first and
  * deleted from the Archived view (the card menu offers "Delete permanently…" only there).

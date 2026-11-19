@@ -6,6 +6,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import { shareBoard } from './helpers/share'
+import { openPanel } from './helpers/boards'
 
 test.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts — see collab.spec.ts.')
 
@@ -70,7 +71,7 @@ test('people on a board vote on notes, live, with an optional dot-voting round',
   await expect(b.page.getByTestId('votes-announcer')).toHaveText(/Vote removed, 1 vote/)
 
   // Top voted: pans to (and selects) the note.
-  await b.page.getByTestId('sidebar-tab-votes').click()
+  await openPanel(b.page, 'votes')
   const items = b.page.getByTestId('top-voted-item')
   await expect(items).toHaveCount(1)
   await expect(items.first()).toContainText('Dark mode')
@@ -79,7 +80,7 @@ test('people on a board vote on notes, live, with an optional dot-voting round',
 
   // Only the owner runs a round.
   await expect(b.page.getByTestId('vote-round-start')).toHaveCount(0)
-  await a.page.getByTestId('sidebar-tab-votes').click()
+  await openPanel(a.page, 'votes')
   await a.page.getByTestId('vote-round-limit').fill('1')
   await a.page.getByTestId('vote-round-clear').click() // keep current votes
   await a.page.getByTestId('vote-round-start').click()

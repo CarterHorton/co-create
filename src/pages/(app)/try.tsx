@@ -68,7 +68,7 @@ export default function TryPage() {
             <Whiteboard store={v.viewStore} title={exportTitle} statusLabel={v.preview ? 'Viewing past version' : 'Saved in this browser'} />
           </div>
         </div>
-        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, closable: true, Icon: History }]} />
+        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, Icon: History }]} />
       </div>
       <ConfirmModal
         open={confirmClear}

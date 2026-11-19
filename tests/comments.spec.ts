@@ -23,7 +23,10 @@ base('guest boards have no comments', async ({ page }) => {
   await addSticky(page, 300, 300, 'Guest note')
   await page.getByTestId('shape-sticky').first().click()
   await page.keyboard.press('m')
+  await page.getByTestId('sidebar-menu').click()
+  await baseExpect(page.getByTestId('sidebar-tab-history')).toBeVisible()
   await baseExpect(page.getByTestId('sidebar-tab-comments')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await baseExpect(page.getByTestId('selection-comment')).toHaveCount(0)
   await baseExpect(page.getByTestId('mentions-button')).toHaveCount(0)
 })
@@ -63,7 +66,7 @@ test.describe('comments on a shared board', () => {
     // A: select the note, press M → the Comments tab opens with the box focused.
     await a.page.getByTestId('shape-sticky').first().click()
     await a.page.keyboard.press('m')
-    await expect(a.page.getByTestId('sidebar-tab-comments')).toHaveAttribute('aria-selected', 'true')
+    await expect(a.page.getByTestId('sidebar-pane-comments')).toBeVisible()
     const input = a.page.getByTestId('comment-input')
     await expect(input).toBeFocused()
     await expect(a.page.getByTestId('comment-target')).toContainText('Sticky note: Login page')
@@ -95,7 +98,7 @@ test.describe('comments on a shared board', () => {
     // B opens the mention: lands on the board with the thread focused, mention read.
     await b.page.getByTestId('mentions-button').click()
     await b.page.getByTestId('mention-item').first().click()
-    await expect(b.page.getByTestId('sidebar-tab-comments')).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 })
+    await expect(b.page.getByTestId('sidebar-pane-comments')).toBeVisible({ timeout: 15_000 })
     await expect(b.page.getByTestId('comment-thread').first()).toBeFocused({ timeout: 10_000 })
     await expect(b.page.getByTestId('mentions-button')).toHaveAttribute('aria-label', 'Mentions', { timeout: 15_000 })
 
