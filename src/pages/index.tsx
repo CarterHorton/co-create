@@ -59,6 +59,20 @@ export default function Landing() {
         >
           or try it without an account
         </Link>
+
+        <footer className="absolute bottom-6 left-0 right-0 space-y-2 px-6 text-xs text-muted-foreground">
+          <p>
+            By using Co-Create you agree to the{' '}
+            <Link to="/terms" className="underline underline-offset-4 transition-colors hover:text-foreground">
+              Terms of Service
+            </Link>{' '}
+            and{' '}
+            <Link to="/privacy" className="underline underline-offset-4 transition-colors hover:text-foreground">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        </footer>
       </div>
     </>
   )

@@ -22,7 +22,7 @@ const fail = (error: string, code?: string): ActionResult => ({ success: false, 
 const DRAIN_LIMIT = 500
 
 /** Delete every matching row, `DRAIN_LIMIT` at a time. */
-async function drain(tools: ActionTools, collection: string, where: Record<string, unknown>): Promise<number> {
+export async function drain(tools: ActionTools, collection: string, where: Record<string, unknown>): Promise<number> {
   let total = 0
   for (;;) {
     const res = await tools.deleteWhere(collection, where, DRAIN_LIMIT)
@@ -60,29 +60,38 @@ const boardDelete: ActionHandler<Env> = async ({ userId, params, tools, env }) =
   }
 
   try {
-    const versions = await drain(tools, 'versions', { boardId })
-    const specs = await drain(tools, 'specs', { boardId })
-    await drain(tools, 'board_timers', { boardId })
-    await drainBoardProjectData(tools, boardId)
-    // View-only share links (src/actions/links.ts) die with the board.
-    await drain(tools, 'board_links', { boardId })
-    await drain(tools, 'votes', { boardId })
-    await drain(tools, 'vote_panels', { boardId })
-    const comments = await drain(tools, 'comments', { boardId })
-    await drain(tools, 'mentions', { boardId })
-    // Access rows go after the content they guard and before the board row,
-    // so a retry still finds the board and its owner.
-    const members = await drain(tools, 'team_members', { teamId: boardId })
-    await clearCanvas(env, boardId)
-    // Best effort: presence is in-memory only and gated on the board existing.
-    await disconnectPresence(env, boardId).catch(() => undefined)
-
-    const removed = await tools.remove('boards', boardId)
-    if (!removed.success) return fail(removed.error)
-    return { success: true, data: { boardId, versions, specs, members, comments } }
+    return { success: true, data: { boardId, ...(await deleteBoardCascade(tools, env, boardId)) } }
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err))
   }
+}
+
+/**
+ * Delete a board and everything hanging off it. The caller must already have
+ * checked the caller owns it. Throws on failure; safe to repeat, since the
+ * board row goes last (also used by accountDelete in ./account.ts).
+ */
+export async function deleteBoardCascade(tools: ActionTools, env: Env, boardId: string) {
+  const versions = await drain(tools, 'versions', { boardId })
+  const specs = await drain(tools, 'specs', { boardId })
+  await drain(tools, 'board_timers', { boardId })
+  await drainBoardProjectData(tools, boardId)
+  // View-only share links (src/actions/links.ts) die with the board.
+  await drain(tools, 'board_links', { boardId })
+  await drain(tools, 'votes', { boardId })
+  await drain(tools, 'vote_panels', { boardId })
+  const comments = await drain(tools, 'comments', { boardId })
+  await drain(tools, 'mentions', { boardId })
+  // Access rows go after the content they guard and before the board row,
+  // so a retry still finds the board and its owner.
+  const members = await drain(tools, 'team_members', { teamId: boardId })
+  await clearCanvas(env, boardId)
+  // Best effort: presence is in-memory only and gated on the board existing.
+  await disconnectPresence(env, boardId).catch(() => undefined)
+
+  const removed = await tools.remove('boards', boardId)
+  if (!removed.success) throw new Error(removed.error)
+  return { versions, specs, members, comments }
 }
 
 export const boardActions: Record<string, ActionHandler<Env>> = {
