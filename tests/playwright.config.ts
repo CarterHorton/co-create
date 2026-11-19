@@ -25,8 +25,10 @@ export default defineConfig({
   // Two projects share the suite's two test accounts. `unfriend` removes
   // their friendship (revoking shared boards), so it waits for the rest.
   projects: [
-    { name: 'main', testIgnore: '**/unfriend.spec.ts' },
+    { name: 'main', testIgnore: ['**/unfriend.spec.ts', '**/account-delete.spec.ts'] },
     { name: 'unfriend', testMatch: '**/unfriend.spec.ts', dependencies: ['main'] },
+    // Wipes test account A entirely, so it runs after everything else.
+    { name: 'account-delete', testMatch: '**/account-delete.spec.ts', dependencies: ['unfriend'] },
   ],
   use: {
     baseURL: BASE_URL,

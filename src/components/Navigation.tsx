@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
+import { ChevronDown, FileText, LogOut, Menu, Shield, X } from 'lucide-react'
 import type { Role } from '../constants'
 import { nav } from '../nav'
 import { cn } from '../lib/utils'
@@ -128,6 +128,14 @@ export default function Navigation() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem render={<Link to="/privacy" />}>
+                  <Shield aria-hidden />
+                  Privacy policy
+                </DropdownMenuItem>
+                <DropdownMenuItem render={<Link to="/terms" />}>
+                  <FileText aria-hidden />
+                  Terms of Service
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => signOut()}>
                   <LogOut aria-hidden />
                   Sign out
