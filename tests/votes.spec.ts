@@ -1,12 +1,15 @@
 /**
- * Voting on sticky notes: vote / unvote from the selection bar and with U,
- * live counts for everyone on the board, the "Top voted" list, a dot-voting
- * round with a per-person limit, and clearing votes. Two test accounts.
+ * Vote panels: A selects two of three sticky notes and opens a vote on them.
+ * B gets a toast, sees those notes marked and the panel, and votes; only the
+ * panel's notes can be voted on, within the per-person limit. A closes the
+ * panel, which finalizes the results for both. A second vote closes on its
+ * own when A leaves the board. Two test accounts.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import { shareBoard } from './helpers/share'
-import { openPanel } from './helpers/boards'
+import { deleteBoard, openPanel } from './helpers/boards'
+import { callAction } from './helpers/actions'
 
 test.skip(loadAllTestAccounts().length < 2, 'Needs 2 usable test accounts — see collab.spec.ts.')
 
@@ -19,13 +22,10 @@ async function addSticky(page: Page, x: number, y: number, text: string) {
 }
 
 const sticky = (page: Page, text: string) => page.getByTestId('shape-sticky').filter({ hasText: text })
-const badgeOf = async (page: Page, text: string) => {
-  const id = await sticky(page, text).getAttribute('data-shape-id')
-  return page.locator(`[data-testid="vote-badge"][data-note="${id}"]`)
-}
+const option = (page: Page, text: string) => page.getByTestId('vote-option').filter({ hasText: text })
 
-test('people on a board vote on notes, live, with an optional dot-voting round', async ({ users }) => {
-  test.setTimeout(120_000)
+test('a vote panel on selected notes: open, vote, close, and close when the opener leaves', async ({ users }) => {
+  test.setTimeout(150_000)
   const [a, b] = await users(2)
 
   await a.page.goto('/home')
@@ -40,84 +40,81 @@ test('people on a board vote on notes, live, with an optional dot-voting round',
 
   await addSticky(a.page, 250, 300, 'Dark mode')
   await addSticky(a.page, 600, 300, 'Offline sync')
-  await expect(b.page.getByTestId('shape-sticky')).toHaveCount(2, { timeout: 10_000 })
+  await addSticky(a.page, 250, 520, 'Themes')
+  await expect(b.page.getByTestId('shape-sticky')).toHaveCount(3, { timeout: 10_000 })
 
-  // A votes from the selection bar.
+  // One note selected: no Start vote. Two: Start vote.
   await sticky(a.page, 'Dark mode').click()
-  const toggle = a.page.getByTestId('vote-toggle')
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  const aDark = await badgeOf(a.page, 'Dark mode')
-  await expect(aDark).toContainText('1')
-  await expect(aDark).toContainText('you')
-  await expect(a.page.getByTestId('votes-announcer')).toHaveText(/Voted, 1 vote/)
-  await expect(sticky(a.page, 'Dark mode')).toHaveAttribute('aria-label', /1 vote, including yours/)
+  await expect(a.page.getByTestId('vote-start')).toHaveCount(0)
+  await sticky(a.page, 'Offline sync').click({ modifiers: ['Shift'] })
+  await a.page.getByTestId('vote-start').click()
+  await expect(a.page.getByTestId('vote-per-person')).toHaveValue('1')
+  await a.page.getByTestId('vote-start-confirm').click()
 
-  // B sees it live (not marked as theirs), then votes with the U key.
-  const bDark = await badgeOf(b.page, 'Dark mode')
-  await expect(bDark).toContainText('1', { timeout: 10_000 })
-  await expect(bDark).not.toContainText('you')
-  await sticky(b.page, 'Dark mode').click()
-  await b.page.keyboard.press('u')
-  await expect(bDark).toContainText('2')
-  await expect(bDark).toContainText('you')
-  await expect(aDark).toContainText('2', { timeout: 10_000 })
+  // Both see the panel with just the two selected notes, marked on the board; B gets a toast.
+  for (const p of [a.page, b.page]) {
+    await expect(p.getByTestId('vote-panel')).toBeVisible({ timeout: 15_000 })
+    await expect(p.getByTestId('vote-option')).toHaveCount(2)
+    await expect(p.getByTestId('vote-mark')).toHaveCount(2)
+    await expect(option(p, 'Themes')).toHaveCount(0)
+  }
+  await expect(b.page.getByText(/opened a vote on 2 notes/)).toBeVisible()
+  await expect(b.page.getByTestId('vote-panel-close')).toHaveCount(0)
+  await expect(a.page.getByTestId('vote-panel-close')).toBeVisible()
 
-  // U again removes B's vote.
-  await b.page.keyboard.press('u')
-  await expect(bDark).toContainText('1')
-  await expect(bDark).not.toContainText('you')
-  await expect(b.page.getByTestId('votes-announcer')).toHaveText(/Vote removed, 1 vote/)
+  // B votes from the panel; A sees the count live.
+  await option(b.page, 'Dark mode').click()
+  await expect(option(b.page, 'Dark mode')).toHaveAttribute('aria-pressed', 'true')
+  await expect(b.page.getByTestId('vote-panel-left')).toHaveText('0 of 1 vote left')
+  await expect(a.page.locator(`[data-testid="vote-badge"][data-note="${await sticky(a.page, 'Dark mode').getAttribute('data-shape-id')}"]`)).toContainText('1', { timeout: 10_000 })
 
-  // Top voted: pans to (and selects) the note.
-  await openPanel(b.page, 'votes')
-  const items = b.page.getByTestId('top-voted-item')
-  await expect(items).toHaveCount(1)
-  await expect(items.first()).toContainText('Dark mode')
-  await items.first().click()
-  await expect(sticky(b.page, 'Dark mode')).toBeFocused()
+  // One vote each: a second one is refused until B removes the first.
+  await option(b.page, 'Offline sync').click()
+  await expect(b.page.getByTestId('vote-panel').getByRole('alert')).toContainText(/already voted/)
+  await expect(option(b.page, 'Offline sync')).toHaveAttribute('aria-pressed', 'false')
 
-  // Only the owner runs a round.
-  await expect(b.page.getByTestId('vote-round-start')).toHaveCount(0)
-  await openPanel(a.page, 'votes')
-  await a.page.getByTestId('vote-round-limit').fill('1')
-  await a.page.getByTestId('vote-round-clear').click() // keep current votes
-  await a.page.getByTestId('vote-round-start').click()
-  await expect(a.page.getByTestId('vote-round-status')).toContainText('1 vote per person')
-  await expect(b.page.getByTestId('vote-round-status')).toContainText('1 vote per person', { timeout: 10_000 })
-  await expect(b.page.getByTestId('votes-announcer')).toHaveText(/Voting round started/)
-  // A already used their one vote on "Dark mode".
-  await expect(a.page.getByTestId('vote-round-left')).toContainText('0 of 1 vote left')
-
-  // The server refuses a second vote while the round is on.
+  // A votes with the keyboard: select a note in the vote, press U.
   await sticky(a.page, 'Offline sync').click()
-  await expect(a.page.getByTestId('votes-left')).toHaveText('0 of 1 vote left')
-  await a.page.getByTestId('vote-toggle').click()
-  await expect(a.page.getByTestId('vote-error')).toContainText(/used all 1 of your votes/)
-  await expect(await badgeOf(a.page, 'Offline sync')).toHaveCount(0)
+  await a.page.keyboard.press('u')
+  await expect(option(a.page, 'Offline sync')).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 })
 
-  // B still has a vote to spend.
-  await sticky(b.page, 'Offline sync').click()
-  await expect(b.page.getByTestId('votes-left')).toHaveText('1 of 1 vote left')
-  await b.page.getByTestId('vote-toggle').click()
-  await expect(await badgeOf(b.page, 'Offline sync')).toContainText('1')
-  await expect(b.page.getByTestId('votes-left')).toHaveText('0 of 1 vote left')
+  // The server refuses votes on notes outside the panel (and on panels that don't exist).
+  const themesId = (await sticky(b.page, 'Themes').getAttribute('data-shape-id'))!
+  const panelId = (await b.page.getByTestId('vote-panel').getAttribute('data-panel'))!
+  expect(await callAction(b.page, 'voteToggle', { panelId, shapeId: themesId })).toMatchObject({ success: false, code: 'bad_request' })
+  expect(await callAction(b.page, 'voteToggle', { panelId: 'nope', shapeId: themesId })).toMatchObject({ success: false })
+  // …and B can't close A's panel while A is here.
+  expect(await callAction(b.page, 'votePanelClose', { panelId })).toMatchObject({ success: false, code: 'forbidden' })
 
-  // Export can include the counts.
+  // Only A can close it; closing finalizes the results for both.
+  await a.page.getByTestId('vote-panel-close').click()
+  for (const p of [a.page, b.page]) {
+    await expect(p.getByTestId('vote-panel')).toHaveCount(0, { timeout: 15_000 })
+    const results = p.getByTestId('vote-panel-results')
+    await expect(results).toBeVisible()
+    await expect(results.getByTestId('vote-result')).toHaveCount(2)
+    await expect(results.getByTestId('vote-result').and(p.locator('[data-top]'))).toHaveCount(2) // a 1–1 tie
+  }
+  await expect(b.page.getByText(/closed the vote/)).toBeVisible()
+  await b.page.getByTestId('vote-results-dismiss').click()
+  await expect(b.page.getByTestId('vote-panel-results')).toHaveCount(0)
+  await openPanel(b.page, 'votes')
+  await expect(b.page.getByTestId('past-vote')).toHaveCount(1)
+
+  // The export can include the final counts.
   await a.page.getByTestId('export-md').click()
-  await expect(a.page.getByTestId('export-preview')).toContainText(/1 vote/, { timeout: 10_000 })
-  await a.page.getByTestId('export-include-votes').click()
-  await expect(a.page.getByTestId('export-preview')).not.toContainText('vote')
+  await expect(a.page.getByTestId('export-preview')).toContainText(/## 1\. Dark mode\s+_1 vote_/)
   await a.page.keyboard.press('Escape')
 
-  // End the round (confirmed), then clear every vote (confirmed).
-  await a.page.getByTestId('vote-round-end').click()
-  await a.page.getByRole('button', { name: 'End round' }).last().click()
-  await expect(a.page.getByTestId('vote-round-status')).toContainText('unlimited')
-  await expect(b.page.getByTestId('vote-round-status')).toContainText('unlimited', { timeout: 10_000 })
-  await a.page.getByTestId('vote-clear').click()
-  await a.page.getByRole('button', { name: 'Clear votes' }).click()
-  await expect(a.page.getByTestId('vote-badge')).toHaveCount(0, { timeout: 10_000 })
-  await expect(b.page.getByTestId('vote-badge')).toHaveCount(0, { timeout: 10_000 })
+  // A second vote, then A leaves the board: it closes for B.
+  await sticky(a.page, 'Dark mode').click()
+  await sticky(a.page, 'Themes').click({ modifiers: ['Shift'] })
+  await a.page.getByTestId('vote-start').click()
+  await a.page.getByTestId('vote-start-confirm').click()
+  await expect(b.page.getByTestId('vote-panel')).toBeVisible({ timeout: 15_000 })
+  await a.page.goto('/home')
+  await expect(b.page.getByTestId('vote-panel')).toHaveCount(0, { timeout: 45_000 })
+  await expect(b.page.getByText(/left, so their vote closed/)).toBeVisible()
+
+  await deleteBoard(a.page, boardUrl.split('/').pop()!)
 })

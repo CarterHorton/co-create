@@ -95,7 +95,14 @@ function BoardWorkspace({
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
-  const votes = useBoardVotes({ boardId, userId, isOwner, shapes: store.shapes })
+  const votes = useBoardVotes({
+    boardId,
+    userId,
+    canEdit: store.canWrite,
+    shapes: store.shapes,
+    peers: presence.peers,
+    presenceConnected: !!presence.connected,
+  })
   const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
   const publisher = useMemo<SpecPublisher>(
     () => ({

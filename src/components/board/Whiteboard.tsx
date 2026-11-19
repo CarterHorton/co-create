@@ -93,7 +93,7 @@ import { FRAME_CLASS, FRAME_EDITOR_CLASS, FRAME_TITLE_CLASS, UNTITLED_FRAME, con
 import { NOTE_TYPES, cycleNoteType, type NoteType } from './noteTypes'
 import { NoteTypeBadge, NoteTypePicker } from './NoteTypeControls'
 import type { BoardVoting } from '@/votes/useBoardVotes'
-import { VoteBadges, VoteBar, VoteButton } from '@/votes/VoteControls'
+import { StartVoteButton, VoteButton, VoteMarks, VotePanelCard } from '@/votes/VoteControls'
 import { Database } from 'lucide-react'
 import { entitySize, newEntityProps, relationEnds } from '@/spec/dataModel'
 import { EntityBody, EntityDialog } from './EntityCard'
@@ -810,7 +810,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
         const stickies = [...selectedSet].map((id) => shapes.find((s) => s.id === id)).filter((s) => s?.type === 'sticky')
         if (stickies.length) return setNoteTypeRef.current(cycleNoteType(stickies as BoardShape[]))
       }
-      if (k === keyOf('vote') && votes && active?.type === 'sticky') return void votes.toggle(active.id)
+      if (k === keyOf('vote') && votes && active?.type === 'sticky' && votes.inPanel(active.id)) return void votes.toggle(active.id)
       if (e.key === '+' || e.key === '=') return zoomAtCenter(1)
       if (e.key === '-' || e.key === '_') return zoomAtCenter(-1)
       if (e.key === '0') return setCam({ x: 0, y: 0, zoom: 1 })
@@ -908,8 +908,14 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     e.currentTarget.scrollLeft = 0
   }
   const connectSource = connectFrom ? byId.get(connectFrom) : undefined
-  /** The one selected sticky note the vote button acts on. */
-  const voteTarget = selectedNotes.length === 1 && selectedNotes[0].type === 'sticky' ? selectedNotes[0] : null
+  /** The one selected sticky note in the open vote: the vote button acts on it. */
+  const voteTarget =
+    selectedNotes.length === 1 && selectedNotes[0].type === 'sticky' && votes?.inPanel(selectedNotes[0].id) ? selectedNotes[0] : null
+  /** Two or more selected sticky notes and no vote open: they can start one. */
+  const voteStartIds =
+    votes?.canOpen && !votes.panel && selectedStickies.length >= 2 && selectedStickies.length === selectedNotes.length
+      ? selectedStickies.map((x) => x.id)
+      : null
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-background" onScroll={noScroll}>
@@ -1070,7 +1076,13 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
               <CommentButton onClick={() => comments.onComment(selectedNotes[0].id, shapeName(selectedNotes[0], byId))} />
             ) : undefined
           }
-          extra={votes && voteTarget && <VoteButton shapeId={voteTarget.id} votes={votes} />}
+          extra={
+            votes && voteTarget ? (
+              <VoteButton shapeId={voteTarget.id} votes={votes} />
+            ) : votes && voteStartIds ? (
+              <StartVoteButton shapeIds={voteStartIds} votes={votes} />
+            ) : undefined
+          }
         />
       )}
       {canWrite && selectedNotes.length > 0 && !editingId && tool === 'select' && (
@@ -1083,19 +1095,6 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
           sectionNames={sectionNames}
           onAssign={(name, sub) => assignSection(name, sub)}
           onUngroup={() => assignSection(null)}
-        />
-      )}
-      {/* People who can't edit get no selection bar, but can still vote. */}
-      {!canWrite && votes && voteTarget && !editingId && (
-        <VoteBar
-          shapeId={voteTarget.id}
-          votes={votes}
-          anchor={{
-            left: cam.x + voteTarget.x * cam.zoom,
-            top: cam.y + voteTarget.y * cam.zoom,
-            bottom: cam.y + (voteTarget.y + voteTarget.height) * cam.zoom,
-          }}
-          view={viewSize}
         />
       )}
       {canWrite && tool === 'select' && active && relationEnds(active, byId) && (
@@ -1163,6 +1162,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       )}
 
       <FollowBanner f={followMode} />
+      {votes && <VotePanelCard votes={votes} shapes={shapes} />}
       <LiveRegion message={announcement} testId="board-announcer" />
       <p id={instructionsId} className="sr-only">
         Tab moves through the shapes from top to bottom and left to right; arrows come last. Focusing a shape selects it.
@@ -1171,7 +1171,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
         add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
         arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
         it. Y changes the selected sticky notes' type: idea, question, decision or risk.
-        {votes && ' U votes for the selected sticky note, or removes your vote.'}
+        {votes && ' Select two or more sticky notes to start a vote; while a vote is open, U votes for the selected note in it, or removes your vote.'}
         {comments && ' M comments on the selected sticky note.'}
         {' '}D then Enter adds a database table; Enter on a table edits its fields, and Enter on an arrow between two tables sets its cardinality.
       </p>
@@ -1309,7 +1309,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
             />
           ))}
 
-          {votes && <VoteBadges shapes={boxes} votes={votes} />}
+          {votes && <VoteMarks shapes={boxes} votes={votes} />}
 
           {marquee && (
             <div
