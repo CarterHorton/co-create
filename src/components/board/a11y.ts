@@ -5,8 +5,11 @@
  */
 
 import type { BoardShape } from './types'
+import { frameLabel } from './frame'
+import { stickyKindName } from './noteTypes'
+import { displayName, entityLabel, entityOf, relationEnds, relationLabel } from '@/spec/dataModel'
 
-const KIND_NAMES: Record<string, string> = { sticky: 'Sticky note', box: 'Box', text: 'Text', arrow: 'Arrow' }
+const KIND_NAMES: Record<string, string> = { sticky: 'Sticky note', box: 'Box', text: 'Text', arrow: 'Arrow', frame: 'Frame', entity: 'Entity' }
 
 /** Shape text without line breaks, shortened for a label. */
 function shortText(s: BoardShape, max = 80): string {
@@ -22,6 +25,7 @@ export function kindName(s: Pick<BoardShape, 'type'>): string {
 /** How an arrow end is named: its text, or its kind when it has none. */
 function endName(s: BoardShape | undefined): string {
   if (!s) return 'a missing shape'
+  if (s.type === 'entity') return `the ${displayName(entityOf(s))} table`
   const text = shortText(s, 40)
   return text ? `“${text}”` : `a ${kindName(s).toLowerCase()}`
 }
@@ -31,11 +35,16 @@ function endName(s: BoardShape | undefined): string {
  * "Arrow from “Login” to “Home”".
  */
 export function shapeName(s: BoardShape, byId: Map<string, BoardShape>): string {
+  const rel = relationEnds(s, byId)
+  if (rel) return relationLabel(s, rel.from, rel.to)
+  if (s.type === 'entity') return entityLabel(s)
   if (s.type === 'arrow') {
     return `Arrow from ${endName(byId.get(String(s.props.from)))} to ${endName(byId.get(String(s.props.to)))}`
   }
+  if (s.type === 'frame') return frameLabel(s, byId.values())
   const text = shortText(s)
-  return text ? `${kindName(s)}: ${text}` : `${kindName(s)} (empty)`
+  const kind = s.type === 'sticky' ? stickyKindName(s) : kindName(s) // "Question sticky note"
+  return text ? `${kind}: ${text}` : `${kind} (empty)`
 }
 
 /**

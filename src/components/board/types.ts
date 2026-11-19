@@ -6,7 +6,7 @@
 
 import type { CanvasShapeClient } from 'deepspace'
 
-export type ShapeKind = 'sticky' | 'box' | 'text' | 'arrow'
+export type ShapeKind = 'sticky' | 'box' | 'text' | 'arrow' | 'frame' | 'entity'
 export type BoardShape = CanvasShapeClient
 
 /** How an arrow is drawn between its two shapes. */
@@ -36,4 +36,6 @@ export interface BoardStore {
 export interface BoardPresence {
   peers: { userId: string; userName: string; state: Record<string, unknown> }[]
   updateState: (state: Record<string, unknown>) => void
+  /** The presence socket is open (updates sent while closed are dropped). */
+  connected?: boolean
 }

@@ -7,10 +7,11 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, useMutations, useQuery, ROLES } from 'deepspace'
-import { ArrowRight, Trash2 } from 'lucide-react'
 import { Button, ConfirmModal, Input, useToast } from '@/components/ui'
 import { PartyPanel } from '@/components/sharing/PartyPanel'
+import { HomeBoards } from '@/components/home/HomeBoards'
 import { callAction } from '@/lib/actions'
+import { useTemplateChoice } from '@/templates/TemplatePicker'
 
 interface Board {
   title: string
@@ -62,6 +63,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const canCreate = role !== ROLES.VIEWER
+  const template = useTemplateChoice()
 
   /** Server-side so the board's versions, specs, access rows and canvas go too. */
   async function deleteBoard(boardId: string) {
@@ -83,6 +85,7 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
     setCreating(true)
     try {
       const id = await createConfirmed({ title: t, ownerId: userId })
+      template.queue(id)
       setTitle('')
       navigate(`/board/${id}`)
     } catch (err) {
@@ -107,56 +110,23 @@ function BoardList({ userId, role }: { userId: string; role?: string }) {
             placeholder="Name a new board — e.g. Onboarding redesign"
             className="flex-1"
           />
+          {template.element}
           <Button data-testid="board-create" type="submit" loading={creating} disabled={!title.trim()}>
             New board
           </Button>
         </form>
       )}
 
-      {status === 'loading' ? (
-        <p className="text-sm text-muted-foreground">Loading boards…</p>
-      ) : boards.length === 0 ? (
-        <div className="border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          No boards yet. Name one above to start, or ask a friend to send you one.
-        </div>
-      ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {boards.map((b) => {
-            const mine = b.data.ownerId === userId
-            return (
-              <li key={b.recordId} className="group relative">
-                <Link
-                  to={`/board/${b.recordId}`}
-                  data-testid={`board-card-${b.recordId}`}
-                  className="flex items-center justify-between gap-4 border border-border bg-background p-5 transition-colors hover:border-royal/50"
-                >
-                  <div className="min-w-0">
-                    <h2 className="truncate font-bold">{b.data.title}</h2>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      {new Date(b.createdAt).toLocaleDateString()}
-                      {mine ? ' · yours' : ' · shared with you'}
-                    </p>
-                  </div>
-                  <ArrowRight className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                </Link>
-                {mine && (
-                  <button
-                    type="button"
-                    aria-label={`Delete ${b.data.title}`}
-                    onClick={() => {
-                      setPendingDelete({ id: b.recordId, title: b.data.title })
-                      setDeleteOpen(true)
-                    }}
-                    className="absolute right-12 top-1/2 -translate-y-1/2 p-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
+      <HomeBoards
+        boards={boards}
+        status={status}
+        userId={userId}
+        canCreate={canCreate}
+        onDelete={(b) => {
+          setPendingDelete(b)
+          setDeleteOpen(true)
+        }}
+      />
 
       <ConfirmModal
         open={deleteOpen}

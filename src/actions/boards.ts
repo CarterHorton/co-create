@@ -15,6 +15,7 @@
 
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
+import { drainBoardProjectData } from './projects'
 
 const fail = (error: string, code?: string): ActionResult => ({ success: false, error, code })
 
@@ -61,6 +62,14 @@ const boardDelete: ActionHandler<Env> = async ({ userId, params, tools, env }) =
   try {
     const versions = await drain(tools, 'versions', { boardId })
     const specs = await drain(tools, 'specs', { boardId })
+    await drain(tools, 'board_timers', { boardId })
+    await drainBoardProjectData(tools, boardId)
+    // View-only share links (src/actions/links.ts) die with the board.
+    await drain(tools, 'board_links', { boardId })
+    await drain(tools, 'votes', { boardId })
+    await drain(tools, 'vote_panels', { boardId })
+    const comments = await drain(tools, 'comments', { boardId })
+    await drain(tools, 'mentions', { boardId })
     // Access rows go after the content they guard and before the board row,
     // so a retry still finds the board and its owner.
     const members = await drain(tools, 'team_members', { teamId: boardId })
@@ -70,7 +79,7 @@ const boardDelete: ActionHandler<Env> = async ({ userId, params, tools, env }) =
 
     const removed = await tools.remove('boards', boardId)
     if (!removed.success) return fail(removed.error)
-    return { success: true, data: { boardId, versions, specs, members } }
+    return { success: true, data: { boardId, versions, specs, members, comments } }
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err))
   }

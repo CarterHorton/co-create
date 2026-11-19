@@ -14,14 +14,28 @@ export async function displayName(page: Page): Promise<string> {
   return ((await page.getByTestId('nav-user-name').textContent()) ?? '').trim()
 }
 
-/** Make A and B friends with a fresh friend code. Both pages end on /home. */
+/**
+ * Make A and B friends with a fresh friend code. Both pages end on /home.
+ *
+ * Specs run in parallel on the same two accounts, so another spec can make a
+ * new code for A between our create and redeem, replacing ours. Retry with a
+ * fresh code when that happens.
+ */
 export async function befriend(a: Party, b: Party): Promise<void> {
-  await Promise.all([a.page.goto('/home'), b.page.goto('/home')])
-  await a.page.getByTestId('friend-code-create').click()
-  const code = ((await a.page.getByTestId('friend-code').textContent()) ?? '').trim()
-  await b.page.getByTestId('friend-code-input').fill(code)
-  await b.page.getByTestId('friend-code-redeem').click()
-  await expect(b.page.getByText(/joined your party/)).toBeVisible({ timeout: 15_000 })
+  const joined = b.page.getByText(/joined your party/)
+  for (let attempt = 1; ; attempt++) {
+    await Promise.all([a.page.goto('/home'), b.page.goto('/home')])
+    await a.page.getByTestId('friend-code-create').click()
+    const code = ((await a.page.getByTestId('friend-code').textContent()) ?? '').trim()
+    await b.page.getByTestId('friend-code-input').fill(code)
+    await b.page.getByTestId('friend-code-redeem').click()
+    try {
+      await expect(joined).toBeVisible({ timeout: attempt < 3 ? 8_000 : 15_000 })
+      return
+    } catch (err) {
+      if (attempt >= 3) throw err
+    }
+  }
 }
 
 /** Send the board at `boardUrl` from its owner A to B. A ends on the board. */

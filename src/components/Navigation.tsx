@@ -26,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui'
+import { MentionsMenu } from '../comments/MentionsMenu'
 
 export default function Navigation() {
   const { isLoaded, isSignedIn, user, userLoading } = useAuthProfileReady({ requireUser: true })
@@ -86,6 +87,8 @@ export default function Navigation() {
               <div className="hidden h-4 w-20 animate-pulse rounded-md bg-muted sm:block" />
             </div>
           ) : isSignedIn && user ? (
+            <>
+            <MentionsMenu />
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -131,6 +134,7 @@ export default function Navigation() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </>
           ) : (
             <button
               data-testid="nav-sign-in-button"

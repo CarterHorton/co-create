@@ -35,6 +35,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react'
 import { getUserColor } from 'deepspace'
 import {
@@ -64,8 +65,11 @@ import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } fr
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
 import { kindName, panToShow, readingOrder, shapeName } from './a11y'
+import { CommentButton, CommentsLayer, useCommentsBridge, type CommentsBridge } from '@/comments/WhiteboardComments'
 import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
 import { LiveRegion, useAnnouncer } from './LiveRegion'
+import { useFollow } from './useFollow'
+import { FollowBanner, PresenceAvatars } from './FollowControls'
 import {
   ARROW_ROUTES,
   DEFAULT_SIZE,
@@ -84,6 +88,16 @@ import {
   textColorOf,
   type StickyColor,
 } from './shapes'
+import { Frame as FrameIcon } from 'lucide-react'
+import { FRAME_CLASS, FRAME_EDITOR_CLASS, FRAME_TITLE_CLASS, UNTITLED_FRAME, contains, isFrame, withFrameContents } from './frame'
+import { NOTE_TYPES, cycleNoteType, type NoteType } from './noteTypes'
+import { NoteTypeBadge, NoteTypePicker } from './NoteTypeControls'
+import type { BoardVoting } from '@/votes/useBoardVotes'
+import { StartVoteButton, VoteButton, VoteMarks, VotePanelCard } from '@/votes/VoteControls'
+import { Database } from 'lucide-react'
+import { entitySize, newEntityProps, relationEnds } from '@/spec/dataModel'
+import { EntityBody, EntityDialog } from './EntityCard'
+import { RelationBar, RelationEnds } from './RelationBar'
 
 type Tool = 'select' | ShapeKind
 interface Camera {
@@ -114,6 +128,8 @@ const TOOLS: { id: Tool; label: string; shortcut: ShortcutId; Icon: typeof Squar
   { id: 'box', label: 'Box', shortcut: 'box', Icon: Square },
   { id: 'text', label: 'Text', shortcut: 'text', Icon: Type },
   { id: 'arrow', label: 'Arrow (click two shapes)', shortcut: 'arrow', Icon: ArrowUpRight },
+  { id: 'frame', label: 'Frame (a named area; shapes inside move with it)', shortcut: 'frame', Icon: FrameIcon },
+  { id: 'entity', label: 'Database table', shortcut: 'entity', Icon: Database },
 ]
 const ROUTE_SHORTCUT: Record<ArrowRoute, ShortcutId> = { straight: 'routeStraight', elbow: 'routeElbow', curve: 'routeCurve' }
 /** Single-key shortcut → action. */
@@ -137,7 +153,7 @@ const POINTER_FOCUS_MS = 500
 const REMOTE_WINDOW_MS = 2000
 /** More changes than this in one update is a restore / reload, not someone editing. */
 const BULK_CHANGE = 20
-const CREATION_TOOLS = ['sticky', 'box', 'text'] as const
+const CREATION_TOOLS = ['sticky', 'box', 'text', 'frame', 'entity'] as const
 const isCreationTool = (t: Tool): t is (typeof CREATION_TOOLS)[number] => (CREATION_TOOLS as readonly string[]).includes(t)
 
 /** Focus a rendered shape (div or SVG arrow) without the browser scrolling anything. */
@@ -159,11 +175,15 @@ interface WhiteboardProps {
   statusLabel?: string
   /** Lets the export dialog publish the spec for agents (signed-in boards). */
   publisher?: SpecPublisher
+  /** Voting on sticky notes (signed-in boards; omit in guest mode and history previews). */
+  votes?: BoardVoting
+  /** Comment badges, the Comment action and panning to threads (signed-in boards). */
+  comments?: CommentsBridge
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel, publisher }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher, votes, comments }: WhiteboardProps) {
   const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
@@ -277,6 +297,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const activeId = editingId ?? (selectedSet.size === 1 ? [...selectedSet][0] : null)
   const active = activeId ? byId.get(activeId) : undefined
   const selectedShapes = useMemo(() => [...selectedSet].map((id) => byId.get(id)!), [selectedSet, byId])
+  useCommentsBridge(comments, { active: editingId ? undefined : active, byId, focusShape })
   const setSelectedId = useCallback((id: string | null) => setSelected(id ? [id] : []), [])
   /** Section names on the board → the subsection names used in each (first spelling wins). */
   const sectionNames = useMemo(() => {
@@ -297,6 +318,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     batch(() => {
       for (const x of selectedNotes) update(x.id, { section: name, subsection: name ? subsection : null })
     })
+
+  /** Sticky note type (idea / question / decision / risk) for the selected stickies. */
+  const selectedStickies = selectedNotes.filter((x) => x.type === 'sticky')
+  const setNoteType = (t: NoteType) => {
+    if (!selectedStickies.length) return
+    batch(() => {
+      for (const x of selectedStickies) update(x.id, { noteType: t === 'idea' ? null : t })
+    })
+    say(`Marked as ${NOTE_TYPES[t].label.toLowerCase()}`, 'noteType')
+  }
+  const setNoteTypeRef = useRef(setNoteType)
+  useLayoutEffect(() => {
+    setNoteTypeRef.current = setNoteType
+  })
 
   /** Text color applies to any note, box or label; fill and border only to boxes. */
   const restyle = (key: 'textColor' | 'fill' | 'stroke', value: string | null) =>
@@ -335,7 +370,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       const { width, height } = DEFAULT_SIZE[type]
       const x = Math.round(wx - width / 2)
       const y = Math.round(wy - height / 2)
-      addShape({ type, x, y, width, height, props: { text: '', ...(type === 'sticky' ? { color } : {}) } })
+      addShape({ type, x, y, width, height, props: type === 'entity' ? newEntityProps() : { text: '', ...(type === 'sticky' ? { color } : {}) } })
       setEditing({ pending: { type, x, y } })
       setSelectedId(null)
       setTool('select')
@@ -371,6 +406,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       const [t, b] = [Math.min(y0, y1), Math.max(y0, y1)]
       const ids = new Set(base)
       for (const s of shapes) {
+        // A frame only when the box takes it in whole: box-selecting notes on a frame shouldn't pick up the frame.
+        if (isFrame(s)) {
+          if (contains({ x: l, y: t, width: r - l, height: b - t }, s)) ids.add(s.id)
+          continue
+        }
         if (s.type !== 'arrow' && s.x < r && s.x + s.width > l && s.y < b && s.y + s.height > t) ids.add(s.id)
       }
       for (const s of shapes) {
@@ -412,7 +452,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     setEditing(null)
     setArrowFrom(null)
     const w = toWorld(e.clientX, e.clientY)
-    if (tool === 'sticky' || tool === 'box' || tool === 'text') {
+    if (tool === 'sticky' || tool === 'box' || tool === 'text' || tool === 'frame' || tool === 'entity') {
       justCreated.current = true
       create(tool, w.x, w.y)
       return
@@ -443,10 +483,10 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     const ids = inSelection ? [...selectedSet] : [s.id]
     if (!inSelection) setSelected([s.id])
     if (!canWrite) return
-    const origins = ids
-      .map((id) => byId.get(id))
-      .filter((x): x is BoardShape => !!x && x.type !== 'arrow')
-      .map((x) => ({ id: x.id, x: x.x, y: x.y }))
+    const origins = withFrameContents(
+      ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow'),
+      shapes,
+    ).map((x) => ({ id: x.id, x: x.x, y: x.y }))
     if (!origins.length) return
     drag.current = {
       kind: 'move',
@@ -554,6 +594,9 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     return () => ro.disconnect()
   }, [])
 
+  /** Follow a collaborator's view (signed-in boards). */
+  const followMode = useFollow({ presence, cam, setCam, viewSize, say })
+
   // ── Wheel (needs a non-passive listener to preventDefault) ─────────────
 
   useEffect(() => {
@@ -621,14 +664,17 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
   const nudge = useCallback(
     (s: BoardShape, dx: number, dy: number) => {
       const ids = selectedSet.has(s.id) ? [...selectedSet] : [s.id]
-      const targets = ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow')
+      const targets = withFrameContents(
+        ids.map((id) => byId.get(id)).filter((x): x is BoardShape => !!x && x.type !== 'arrow'),
+        shapes,
+      )
       batch(() => {
         for (const x of targets) move(x.id, x.x + dx, x.y + dy)
       })
       if (targets.length) say('Moved', 'move')
       keepInView({ x: s.x + dx, y: s.y + dy, width: s.width, height: s.height })
     },
-    [selectedSet, byId, batch, move, keepInView, say],
+    [selectedSet, byId, batch, move, keepInView, say, shapes],
   )
 
   function onShapeFocus(s: BoardShape) {
@@ -674,6 +720,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     }
     if ((e.key === 'Enter' || e.key === 'F2') && !mod && !e.altKey) {
       e.preventDefault()
+      // Enter on a relation jumps to its cardinality picker (Escape there comes back).
+      if (s.type === 'arrow' && relationEnds(s, byId)) viewportRef.current?.parentElement?.querySelector<HTMLElement>('[data-testid="relation-bar"] [aria-pressed="true"]')?.focus()
       if (s.type === 'arrow') return
       if (tool === 'arrow') return pickForArrow(s.id)
       if (canWrite) setEditing({ id: s.id })
@@ -758,6 +806,11 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       if (routeHit && canWrite) return applyRoute(routeHit.id)
       if (k === keyOf('sections')) return setShowSections((v) => !v)
       if (k === keyOf('export')) return setExportOpen(true)
+      if (k === keyOf('noteType') && canWrite) {
+        const stickies = [...selectedSet].map((id) => shapes.find((s) => s.id === id)).filter((s) => s?.type === 'sticky')
+        if (stickies.length) return setNoteTypeRef.current(cycleNoteType(stickies as BoardShape[]))
+      }
+      if (k === keyOf('vote') && votes && active?.type === 'sticky' && votes.inPanel(active.id)) return void votes.toggle(active.id)
       if (e.key === '+' || e.key === '=') return zoomAtCenter(1)
       if (e.key === '-' || e.key === '_') return zoomAtCenter(-1)
       if (e.key === '0') return setCam({ x: 0, y: 0, zoom: 1 })
@@ -774,7 +827,20 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter])
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter, votes])
+
+  // "Top voted" (Votes pane) asks to show a note: select it, pan to it, focus it.
+  const revealSub = votes?.onReveal
+  useEffect(() => {
+    if (!revealSub) return
+    return revealSub((id) => {
+      const s = byId.get(id)
+      if (!s) return
+      setSelected([id])
+      keepInView(s)
+      focusShape(id)
+    })
+  }, [revealSub, byId, keepInView, focusShape])
 
   useEffect(() => () => {
     if (cursorFrame.current !== null) cancelAnimationFrame(cursorFrame.current)
@@ -842,6 +908,14 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
     e.currentTarget.scrollLeft = 0
   }
   const connectSource = connectFrom ? byId.get(connectFrom) : undefined
+  /** The one selected sticky note in the open vote: the vote button acts on it. */
+  const voteTarget =
+    selectedNotes.length === 1 && selectedNotes[0].type === 'sticky' && votes?.inPanel(selectedNotes[0].id) ? selectedNotes[0] : null
+  /** Two or more selected sticky notes and no vote open: they can start one. */
+  const voteStartIds =
+    votes?.canOpen && !votes.panel && selectedStickies.length >= 2 && selectedStickies.length === selectedNotes.length
+      ? selectedStickies.map((x) => x.id)
+      : null
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-background" onScroll={noScroll}>
@@ -950,18 +1024,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       {/* Status + presence */}
       {/* Second row on normal widths so it never collides with the toolbar; shares the top row on very wide screens. */}
       <div className="absolute right-4 top-[68px] z-20 flex items-center gap-3 min-[1600px]:top-4">
-        <div className="flex -space-x-1">
-          {peers.map((p) => (
-            <span
-              key={p.userId}
-              title={p.userName}
-              className="flex size-7 items-center justify-center border border-foreground text-xs font-bold text-white"
-              style={{ background: getUserColor(p.userId) }}
-            >
-              {(p.userName?.[0] ?? '?').toUpperCase()}
-            </span>
-          ))}
-        </div>
+        <PresenceAvatars peers={peers} f={followMode} />
         <Hint label="Outline the sections the export will use" shortcut="sections">
         <button
           type="button"
@@ -1005,11 +1068,69 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
           }}
           view={viewSize}
           shapes={selectedNotes}
+          onRestyle={restyle}
+          onDelete={() => removeMany(selectedSet)}
+          onNoteType={setNoteType}
+          actions={
+            comments && selectedNotes.length === 1 ? (
+              <CommentButton onClick={() => comments.onComment(selectedNotes[0].id, shapeName(selectedNotes[0], byId))} />
+            ) : undefined
+          }
+          extra={
+            votes && voteTarget ? (
+              <VoteButton shapeId={voteTarget.id} votes={votes} />
+            ) : votes && voteStartIds ? (
+              <StartVoteButton shapeIds={voteStartIds} votes={votes} />
+            ) : undefined
+          }
+        />
+      )}
+      {canWrite && selectedNotes.length > 0 && !editingId && tool === 'select' && (
+        <SectionBar
+          // Distinct from the SelectionBar's key: sibling keys must differ, or
+          // React keeps stale copies of the bars around.
+          key={`section:${selectedNotes.map((x) => x.id).join(',')}`}
+          viewWidth={viewSize.width}
+          shapes={selectedNotes}
           sectionNames={sectionNames}
           onAssign={(name, sub) => assignSection(name, sub)}
           onUngroup={() => assignSection(null)}
-          onRestyle={restyle}
-          onDelete={() => removeMany(selectedSet)}
+        />
+      )}
+      {canWrite && tool === 'select' && active && relationEnds(active, byId) && (
+        <RelationBar
+          arrow={active}
+          {...relationEnds(active, byId)!}
+          cam={cam}
+          view={viewSize}
+          onChange={(c) => {
+            update(active.id, { cardinality: c })
+            say(shapeName({ ...active, props: { ...active.props, cardinality: c } }, byId), 'edit')
+          }}
+          onEscape={() => focusShape(active.id)}
+        />
+      )}
+      {active?.type === 'entity' && active.id === editingId && (
+        <EntityDialog
+          key={active.id}
+          shape={active}
+          finalFocus={() => viewportRef.current?.querySelector<HTMLElement>(`[data-shape-id="${CSS.escape(active.id)}"]`) ?? null}
+          onClose={() => {
+            setEditing(null)
+            setSelectedId(active.id)
+            focusShape(active.id)
+          }}
+          onSave={(name, fields) => {
+            batch(() => {
+              update(active.id, { name, fields })
+              const size = entitySize(name, fields, active.width)
+              if (size.width !== active.width || size.height !== active.height) resize(active.id, size.width, size.height)
+            })
+            say('Table saved', 'edit')
+            setEditing(null)
+            setSelectedId(active.id)
+            focusShape(active.id)
+          }}
         />
       )}
 
@@ -1040,13 +1161,19 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </p>
       )}
 
+      <FollowBanner f={followMode} />
+      {votes && <VotePanelCard votes={votes} shapes={shapes} />}
       <LiveRegion message={announcement} testId="board-announcer" />
       <p id={instructionsId} className="sr-only">
         Tab moves through the shapes from top to bottom and left to right; arrows come last. Focusing a shape selects it.
         Arrow keys move the focused shape, with Shift for bigger steps. Alt or Option with arrow keys resizes it. Enter or
         F2 edits its text; Enter or Escape finishes. C connects it to another shape with an arrow. Delete removes it. To
         add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
-        arrow keys pan the view; plus and minus zoom.
+        arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
+        it. Y changes the selected sticky notes' type: idea, question, decision or risk.
+        {votes && ' Select two or more sticky notes to start a vote; while a vote is open, U votes for the selected note in it, or removes your vote.'}
+        {comments && ' M comments on the selected sticky note.'}
+        {' '}D then Enter adds a database table; Enter on a table edits its fields, and Enter on an arrow between two tables sets its cardinality.
       </p>
 
       {/* Viewport */}
@@ -1132,6 +1259,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
                     markerEnd={`url(#${isActive ? 'arrowhead-active' : 'arrowhead'})`}
                     pointerEvents="none"
                   />
+                  {relationEnds(a, byId) && <RelationEnds arrow={a} from={from} to={to} d={geo.d} tip={geo.tip} />}
                   {a.id === activeId && canWrite && geo.handle && geo.axis && (
                     <rect
                       data-testid="arrow-bend-handle"
@@ -1164,7 +1292,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               arrowSource={s.id === arrowFrom}
               editing={s.id === editingId}
               canWrite={canWrite}
-              label={shapeName(s, byId)}
+              label={shapeName(s, byId) + (votes?.labelSuffix(s.id) ?? '')}
               tabbable={s.id === rovingId}
               onFocus={() => onShapeFocus(s)}
               onKeyDown={(e) => onShapeKeyDown(e, s)}
@@ -1180,6 +1308,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
               }}
             />
           ))}
+
+          {votes && <VoteMarks shapes={boxes} votes={votes} />}
 
           {marquee && (
             <div
@@ -1216,6 +1346,18 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
         </div>
       </div>
 
+      {comments && (
+        <CommentsLayer
+          bridge={comments}
+          cam={cam}
+          view={viewSize}
+          shapes={shapes}
+          byId={byId}
+          active={active}
+          showBar={!canWrite && !editingId && tool === 'select' && selectedSet.size === 1}
+        />
+      )}
+
       {connectSource && (
         <ConnectMenu
           sourceName={shapeName(connectSource, byId)}
@@ -1233,7 +1375,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher }: W
       )}
 
       {exportOpen && (
-        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} />
+        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} voteCounts={votes?.specCounts} />
       )}
     </div>
   )
@@ -1426,6 +1568,8 @@ function ShapeView({
         s.type === 'sticky' && 'items-start p-4 shadow-[4px_4px_0_0_#000] border border-foreground',
         s.type === 'box' && 'items-center justify-center border-2 border-foreground bg-background p-3 text-center',
         s.type === 'text' && 'items-start',
+        s.type === 'frame' && FRAME_CLASS,
+        s.type === 'entity' && 'flex-col border-2 border-foreground bg-background shadow-[4px_4px_0_0_#000]',
         canWrite && !editing ? 'cursor-move' : '',
         (selected || arrowSource) && 'outline outline-2 outline-offset-4 outline-royal/50',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-royal',
@@ -1438,26 +1582,31 @@ function ShapeView({
         ...colors,
       }}
     >
-      {editing ? (
+      {s.type === 'entity' ? (
+        <EntityBody shape={s} />
+      ) : editing ? (
         <EditText
           initial={text}
-          className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold')}
+          className={cn(s.type === 'box' && 'text-center', s.type === 'text' && 'text-xl font-bold', s.type === 'frame' && FRAME_EDITOR_CLASS)}
           onSave={onSave}
           onDone={onDone}
         />
       ) : (
         <p
+          data-testid={s.type === 'frame' ? 'frame-title' : undefined}
           className={cn(
             'w-full overflow-hidden whitespace-pre-wrap break-words leading-snug',
             s.type === 'sticky' && 'text-base',
             s.type === 'box' && 'text-base font-bold',
             s.type === 'text' && 'text-xl font-bold',
+            s.type === 'frame' && FRAME_TITLE_CLASS,
             !text && 'opacity-40',
           )}
         >
-          {text || (canWrite ? 'Double-click to write' : '')}
+          {text || (s.type === 'frame' ? UNTITLED_FRAME : canWrite ? 'Double-click to write' : '')}
         </p>
       )}
+      {s.type === 'sticky' && <NoteTypeBadge shape={s} />}
       {showSectionTag && sectionNameOf(s) && (
         <span
           data-testid="shape-section-tag"
@@ -1471,7 +1620,7 @@ function ShapeView({
         <div
           role="presentation"
           onPointerDown={onResizePointerDown}
-          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize border border-foreground bg-background"
+          className="pointer-events-auto absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize border border-foreground bg-background"
         />
       )}
     </div>
@@ -1623,56 +1772,30 @@ function SectionsOverlay({ shapes, zoom }: { shapes: BoardShape[]; zoom: number 
 }
 
 /**
- * Floating bar for the current selection: name a section (and optionally a
- * subsection within it, e.g. Front-end › Login page) and assign the selected
- * shapes to it (they become one section in the export, wherever they sit),
- * remove them from their section, or delete them.
+ * Bar centred at the bottom of the board for the current selection: name a
+ * section (and optionally a subsection within it, e.g. Front-end › Login page)
+ * and assign the selected shapes to it (they become one section in the export,
+ * wherever they sit), or remove them from their section. Kept out of the
+ * floating selection bar so that stays small next to the selection.
  */
-/** Space between the selection and the bar: clears the section tag drawn above a note. */
-const BAR_GAP = 28
-/** Keep the bar below the toolbar row. */
-const BAR_MIN_TOP = 72
+/** Board width that fits the section bar (~520px) centred between two zoom-control widths. */
+const SECTION_BAR_ROOM = 900
 
-function SelectionBar({
-  anchor,
-  view,
+function SectionBar({
+  viewWidth,
   shapes,
   sectionNames,
   onAssign,
   onUngroup,
-  onRestyle,
-  onDelete,
 }: {
-  /** The selection's on-screen left edge, top and bottom (viewport px). */
-  anchor: { left: number; top: number; bottom: number }
-  /** Viewport size, to keep the bar on screen. */
-  view: { width: number; height: number }
+  /** The board viewport's width. */
+  viewWidth: number
   shapes: BoardShape[]
   /** Section name → subsection names already used in it. */
   sectionNames: Map<string, string[]>
   onAssign: (name: string, subsection: string | null) => void
   onUngroup: () => void
-  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
-  onDelete: () => void
 }) {
-  const [colorsOpen, setColorsOpen] = useState(false)
-  const barRef = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ width: 0, height: 0 })
-  useLayoutEffect(() => {
-    const el = barRef.current
-    if (!el) return
-    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
-  const above = anchor.top - BAR_GAP - size.height
-  const below = above < BAR_MIN_TOP
-  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
-  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
-  const left = clamp(anchor.left, 16, view.width - size.width - 16)
   const current = new Set(shapes.map(sectionNameOf))
   const currentSub = new Set(shapes.map(subsectionNameOf))
   const [name, setName] = useState(current.size === 1 ? [...current][0] : '')
@@ -1685,17 +1808,18 @@ function SelectionBar({
   const field = 'h-8 border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
   return (
     <div
-      ref={barRef}
-      data-testid="selection-bar"
-      data-placement={below ? 'below' : 'above'}
-      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
-      style={{ left, top }}
+      data-testid="section-bar"
+      role="group"
+      aria-label={`Section for ${shapes.length} selected`}
+      // Centred at the bottom. On a narrow board it would reach the zoom
+      // controls in the bottom-right corner, so it sits a row above them.
+      className={cn(
+        'absolute left-1/2 z-20 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]',
+        viewWidth < SECTION_BAR_ROOM ? 'bottom-16' : 'bottom-4',
+      )}
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
-        {shapes.length} selected
-      </span>
       <form
         className="flex flex-wrap items-center gap-1"
         onSubmit={(e) => {
@@ -1742,7 +1866,7 @@ function SelectionBar({
           type="submit"
           data-testid="section-assign"
           disabled={!name.trim()}
-          className="h-8 bg-foreground px-3 text-xs font-bold uppercase tracking-[0.05em] text-background disabled:opacity-30"
+          className="h-8 bg-foreground px-3 text-xs font-bold uppercase tracking-[0.05em] text-background disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Assign
         </button>
@@ -1753,12 +1877,80 @@ function SelectionBar({
           type="button"
           data-testid="section-remove"
           onClick={onUngroup}
-          className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20"
+          className="flex h-8 items-center gap-1 border border-foreground px-2 text-xs font-bold uppercase tracking-[0.05em] hover:bg-royal/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           <Ungroup className="size-3.5" /> Ungroup
         </button>
         </Hint>
       )}
+    </div>
+  )
+}
+
+/**
+ * Floating bar next to the current selection: color, sticky note type,
+ * voting, comment, and delete. (Sections are in the SectionBar at the bottom.)
+ */
+/** Space between the selection and the bar: clears the section tag drawn above a note. */
+const BAR_GAP = 28
+/** Keep the bar below the toolbar row. */
+const BAR_MIN_TOP = 72
+
+function SelectionBar({
+  anchor,
+  view,
+  shapes,
+  onRestyle,
+  onDelete,
+  onNoteType,
+  actions,
+  extra,
+}: {
+  /** The selection's on-screen left edge, top and bottom (viewport px). */
+  anchor: { left: number; top: number; bottom: number }
+  /** Viewport size, to keep the bar on screen. */
+  view: { width: number; height: number }
+  shapes: BoardShape[]
+  onRestyle: (key: 'textColor' | 'fill' | 'stroke', value: string | null) => void
+  onDelete: () => void
+  onNoteType: (t: NoteType) => void
+  /** More controls, after the count (e.g. voting). */
+  extra?: ReactNode
+  /** More actions, before Delete (e.g. Comment). */
+  actions?: ReactNode
+}) {
+  const [colorsOpen, setColorsOpen] = useState(false)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const measure = () => setSize({ width: el.offsetWidth, height: el.offsetHeight })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // Left-aligned just above the selection; below it when there's no room above. Clamped on screen.
+  const above = anchor.top - BAR_GAP - size.height
+  const below = above < BAR_MIN_TOP
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, Math.max(lo, hi)))
+  const top = clamp(below ? anchor.bottom + 12 : above, BAR_MIN_TOP, view.height - size.height - 16)
+  const left = clamp(anchor.left, 16, view.width - size.width - 16)
+  return (
+    <div
+      ref={barRef}
+      data-testid="selection-bar"
+      data-placement={below ? 'below' : 'above'}
+      className="absolute z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-2 border border-foreground bg-background p-1.5 shadow-[4px_4px_0_0_#000]"
+      style={{ left, top }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <span data-testid="selection-count" className="whitespace-nowrap px-1.5 font-mono text-xs font-semibold">
+        {shapes.length} selected
+      </span>
+      {extra}
       <button
         type="button"
         data-testid="selection-colors"
@@ -1772,6 +1964,8 @@ function SelectionBar({
         <Palette className="size-3.5" /> Color
       </button>
       {colorsOpen && <ColorPanel shapes={shapes} onRestyle={onRestyle} below={below} />}
+      <NoteTypePicker shapes={shapes} onPick={onNoteType} />
+      {actions}
       <Hint label="Delete selected" shortcut="delete" side="top">
       <button
         type="button"

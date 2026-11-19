@@ -33,6 +33,12 @@ export const SHORTCUTS = {
   moveShape: ['Arrows'],
   resizeShape: ['Alt', 'Arrows'],
   connect: ['C'],
+  frame: ['F'],
+  noteType: ['Y'],
+  // Signed-in boards: vote for the selected sticky note ("upvote").
+  vote: ['U'],
+  entity: ['D'],
+  comment: ['M'],
 } as const
 
 export type ShortcutId = keyof typeof SHORTCUTS

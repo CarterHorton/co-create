@@ -9,7 +9,32 @@
  */
 
 import { arrowBend, arrowGeometry, arrowRoute, shapeColors, shapeText } from './shapes'
+import { drawEntity, drawRelationEnds } from './entityPdf'
 import type { BoardShape } from './types'
+import { UNTITLED_FRAME, frameName, isFrame } from './frame'
+
+/** A frame: dashed outline with its name in a dark tab at the top-left. */
+function drawFrame(ctx: CanvasRenderingContext2D, f: BoardShape, font: string) {
+  ctx.save()
+  ctx.strokeStyle = '#6B6B6B'
+  ctx.lineWidth = 2
+  ctx.setLineDash([8, 6])
+  ctx.strokeRect(f.x + 1, f.y + 1, f.width - 2, f.height - 2)
+  ctx.setLineDash([])
+  ctx.font = `bold 14px ${font}`
+  const name = frameName(f) || UNTITLED_FRAME
+  const w = Math.min(f.width, ctx.measureText(name).width + 16)
+  ctx.fillStyle = '#0A0A0A'
+  ctx.fillRect(f.x, f.y, w, 26)
+  ctx.beginPath()
+  ctx.rect(f.x, f.y, w, 26)
+  ctx.clip()
+  ctx.fillStyle = '#FFFFFF'
+  ctx.textBaseline = 'top'
+  ctx.textAlign = 'left'
+  ctx.fillText(name, f.x + 8, f.y + 6)
+  ctx.restore()
+}
 
 /** Longest side of the rendered image, in px. */
 export const MAX_SIDE = 1600
@@ -99,6 +124,9 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
   ctx.translate(PAD - bounds.x, PAD + HEADER - bounds.y)
   const byId = new Map(shapes.map((s) => [s.id, s]))
 
+  // Frames behind everything, as on the board.
+  for (const f of shapes) if (isFrame(f)) drawFrame(ctx, f, font)
+
   // Arrows under the shapes, as on the board.
   ctx.strokeStyle = '#000000'
   ctx.fillStyle = '#000000'
@@ -117,10 +145,11 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
     ctx.lineTo(geo.tip.x - 12 * Math.cos(ang + 0.45), geo.tip.y - 12 * Math.sin(ang + 0.45))
     ctx.closePath()
     ctx.fill()
+    if (from.type === 'entity' && to.type === 'entity') drawRelationEnds(ctx, a, from, to, geo)
   }
 
   for (const s of shapes) {
-    if (s.type === 'arrow') continue
+    if (s.type === 'arrow' || isFrame(s)) continue
     const colors = shapeColors(s)
     if (s.type === 'sticky') {
       ctx.fillStyle = '#000000'
@@ -135,6 +164,10 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
       ctx.lineWidth = s.type === 'box' ? 2 : 1
       const inset = ctx.lineWidth / 2
       ctx.strokeRect(s.x + inset, s.y + inset, s.width - inset * 2, s.height - inset * 2)
+    }
+    if (s.type === 'entity') {
+      drawEntity(ctx, s, font)
+      continue
     }
 
     const text = shapeText(s).trim()

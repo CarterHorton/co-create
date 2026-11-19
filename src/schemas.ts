@@ -19,6 +19,11 @@ import {
   friendshipsSchema,
   teamMembersSchema,
 } from './schemas/sharing-schema'
+import { boardTimersSchema } from './schemas/board-timers-schema'
+import { boardPinsSchema, projectGrantsSchema, projectMembersSchema, projectsSchema } from './schemas/projects-schema'
+import { boardLinkAttemptsSchema, boardLinksSchema } from './schemas/links-schema'
+import { votePanelsSchema, votesSchema } from './schemas/votes-schema'
+import { commentsSchema, mentionsSchema } from './schemas/comments-schema'
 
 export const schemas: CollectionSchema[] = [
   usersSchema,
@@ -30,4 +35,15 @@ export const schemas: CollectionSchema[] = [
   friendshipsSchema,
   friendCodesSchema,
   friendCodeAttemptsSchema,
+  boardTimersSchema,
+  projectsSchema,
+  projectMembersSchema,
+  projectGrantsSchema,
+  boardPinsSchema,
+  boardLinksSchema,
+  boardLinkAttemptsSchema,
+  votesSchema,
+  votePanelsSchema,
+  commentsSchema,
+  mentionsSchema,
 ]

@@ -1,6 +1,7 @@
 /** Shape vocabulary, defaults, and geometry helpers for the whiteboard. */
 
 import type { ArrowRoute, BoardShape, ShapeKind } from './types'
+import { DEFAULT_ENTITY_SIZE } from '@/spec/dataModel'
 
 export const STICKY_COLORS = {
   white: { bg: '#FFFFFF', fg: '#000000', label: 'White' },
@@ -67,6 +68,8 @@ export const DEFAULT_SIZE: Record<Exclude<ShapeKind, 'arrow'>, { width: number; 
   sticky: { width: 180, height: 180 },
   box: { width: 220, height: 120 },
   text: { width: 260, height: 48 },
+  frame: { width: 480, height: 320 },
+  entity: DEFAULT_ENTITY_SIZE,
 }
 
 export const MIN_SIZE = 40

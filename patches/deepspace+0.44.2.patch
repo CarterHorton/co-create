@@ -1,0 +1,56 @@
+diff --git a/node_modules/deepspace/dist/server.js b/node_modules/deepspace/dist/server.js
+index f631b84..0e97681 100644
+--- a/node_modules/deepspace/dist/server.js
++++ b/node_modules/deepspace/dist/server.js
+@@ -5279,14 +5279,18 @@ function executeTableQuery(ctx, query, schema, userId, userRole, isSystem, skipU
+   let skipPerRecordCheck = skipUserRbac;
+   if (!skipUserRbac && schema.teamField && perms.read === "team") {
+     const filterCol = schema.teamField === "_rowId" ? "_row_id" : columns.find((c) => c.name === schema.teamField)?.id;
+-    const teamIds = filterCol && userId ? preloadUserTeamIds(ctx, userId) : null;
++    // co-create patch (docs/sdk-issues/team-scoped-query-parameter-limit.md): look the user's
++    // teams up in a subquery instead of binding one parameter per team, which fails past
++    // SQLite's ~100 bound-parameter limit for users in many teams.
++    const hasTeamMembers = !!(filterCol && userId && ctx.schemaRegistry.get("team_members")?.columns?.length);
+     if (filterCol) {
+       if (!userId) {
+         whereClauses.push("0");
+-      } else if (teamIds && teamIds.length > 0) {
+-        const placeholders = teamIds.map(() => "?").join(", ");
+-        whereClauses.push(`("${filterCol}" IN (${placeholders}) OR _created_by = ?)`);
+-        params.push(...teamIds, userId);
++      } else if (hasTeamMembers) {
++        whereClauses.push(
++          `("${filterCol}" IN (SELECT col_teamid FROM c_team_members WHERE col_userid = ? AND (col_status = 'active' OR col_status IS NULL)) OR _created_by = ?)`
++        );
++        params.push(userId, userId);
+       } else {
+         whereClauses.push(`_created_by = ?`);
+         params.push(userId);
+diff --git a/node_modules/deepspace/dist/worker.js b/node_modules/deepspace/dist/worker.js
+index 63e6d4e..b42f4aa 100644
+--- a/node_modules/deepspace/dist/worker.js
++++ b/node_modules/deepspace/dist/worker.js
+@@ -2244,14 +2244,18 @@ function executeTableQuery(ctx, query, schema, userId, userRole, isSystem, skipU
+   let skipPerRecordCheck = skipUserRbac;
+   if (!skipUserRbac && schema.teamField && perms.read === "team") {
+     const filterCol = schema.teamField === "_rowId" ? "_row_id" : columns.find((c) => c.name === schema.teamField)?.id;
+-    const teamIds = filterCol && userId ? preloadUserTeamIds(ctx, userId) : null;
++    // co-create patch (docs/sdk-issues/team-scoped-query-parameter-limit.md): look the user's
++    // teams up in a subquery instead of binding one parameter per team, which fails past
++    // SQLite's ~100 bound-parameter limit for users in many teams.
++    const hasTeamMembers = !!(filterCol && userId && ctx.schemaRegistry.get("team_members")?.columns?.length);
+     if (filterCol) {
+       if (!userId) {
+         whereClauses.push("0");
+-      } else if (teamIds && teamIds.length > 0) {
+-        const placeholders = teamIds.map(() => "?").join(", ");
+-        whereClauses.push(`("${filterCol}" IN (${placeholders}) OR _created_by = ?)`);
+-        params.push(...teamIds, userId);
++      } else if (hasTeamMembers) {
++        whereClauses.push(
++          `("${filterCol}" IN (SELECT col_teamid FROM c_team_members WHERE col_userid = ? AND (col_status = 'active' OR col_status IS NULL)) OR _created_by = ?)`
++        );
++        params.push(userId, userId);
+       } else {
+         whereClauses.push(`_created_by = ?`);
+         params.push(userId);

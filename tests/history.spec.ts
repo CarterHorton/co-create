@@ -5,6 +5,7 @@
 import { test as base, expect as baseExpect, type Page } from '@playwright/test'
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import { shareBoard } from './helpers/share'
+import { openPanel } from './helpers/boards'
 
 async function addSticky(page: Page, x: number, y: number, text: string) {
   await page.getByTestId('board-viewport').dblclick({ position: { x, y } })
@@ -24,7 +25,7 @@ base('guest board: save, auto-save, preview and restore a version', async ({ pag
   base.setTimeout(60_000)
   await page.goto('/try')
   await baseExpect(page.getByTestId('try-page')).toBeVisible({ timeout: 15_000 })
-  await page.getByTestId('sidebar-tab-history').click()
+  await openPanel(page, 'history')
 
   await addSticky(page, 300, 300, 'First idea')
   await page.getByTestId('history-message').fill('Kickoff')
@@ -54,7 +55,7 @@ base('guest board: save, auto-save, preview and restore a version', async ({ pag
 
   // History survives a reload.
   await page.reload()
-  await page.getByTestId('sidebar-tab-history').click()
+  await openPanel(page, 'history')
   await baseExpect(page.getByTestId('history-item')).toHaveCount(3)
 })
 
@@ -75,12 +76,12 @@ test.describe('shared board history', () => {
     await expect(b.page.getByTestId('board-connection')).toHaveText(/Live/, { timeout: 15_000 })
 
     await addSticky(a.page, 300, 300, 'Plan A')
-    await a.page.getByTestId('sidebar-tab-history').click()
+    await openPanel(a.page, 'history')
     await a.page.getByTestId('history-message').fill('Plan A drafted')
     await a.page.getByTestId('history-save').click()
 
     // B sees the version.
-    await b.page.getByTestId('sidebar-tab-history').click()
+    await openPanel(b.page, 'history')
     const bItems = b.page.getByTestId('history-item')
     await expect(bItems.first()).toContainText('Plan A drafted', { timeout: 15_000 })
     await expect(bItems.first()).toContainText(a.name || a.email)

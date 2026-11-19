@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { Bot, Check, Copy, Download, FileImage } from 'lucide-react'
-import { Button, Modal } from '@/components/ui'
+import { Button, Checkbox, Modal } from '@/components/ui'
 import { buildMarkdown, specFileName } from '@/spec/buildSpec'
 import type { BoardShape } from './types'
 import { boardToPdf } from './pdf'
+import { DataModelExport } from './DataModelExport'
 
 export interface SpecPublisher {
   publish: (spec: { title: string; markdown: string }) => Promise<void>
@@ -18,13 +19,19 @@ export function ExportDialog({
   shapes,
   onClose,
   publisher,
+  voteCounts,
 }: {
   title: string
   shapes: BoardShape[]
   onClose: () => void
   publisher?: SpecPublisher
+  /** Vote counts by note; offers to write them into the spec when there are any. */
+  voteCounts?: ReadonlyMap<string, number>
 }) {
-  const markdown = useMemo(() => buildMarkdown(title, shapes), [title, shapes])
+  const hasVotes = !!voteCounts?.size
+  const [withVotes, setWithVotes] = useState(true)
+  const votes = hasVotes && withVotes ? voteCounts : undefined
+  const markdown = useMemo(() => buildMarkdown(title, shapes, { votes }), [title, shapes, votes])
   const fileName = specFileName(title)
   const [copied, setCopied] = useState(false)
   const [publishState, setPublishState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
@@ -86,12 +93,19 @@ export function ExportDialog({
         </Modal.Description>
       </Modal.Header>
       <Modal.Body>
+        {hasVotes && (
+          <label className="mb-3 flex items-center gap-2 text-sm">
+            <Checkbox data-testid="export-include-votes" checked={withVotes} onCheckedChange={setWithVotes} />
+            Include vote counts next to notes
+          </label>
+        )}
         <pre
           data-testid="export-preview"
           className="max-h-[50vh] overflow-auto whitespace-pre-wrap border border-border bg-card p-4 font-mono text-xs leading-relaxed"
         >
           {markdown}
         </pre>
+        <DataModelExport title={title} shapes={shapes} />
         {publishState === 'done' && publisher && (
           <div data-testid="publish-done" className="mt-3 border border-foreground p-3 text-sm">
             <p className="font-bold">Published. A coding agent can fetch it with:</p>

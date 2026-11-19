@@ -14,6 +14,7 @@ import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useLocalHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
 import { Button, ConfirmModal } from '@/components/ui'
+import { GuestTemplates } from '@/templates/GuestTemplates'
 
 export default function TryPage() {
   const board = useLocalBoard()
@@ -23,6 +24,7 @@ export default function TryPage() {
   const { isSignedIn } = useAuthStatus()
   const [signIn, setSignIn] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [pickTemplate, setPickTemplate] = useState(false)
 
   return (
     <div data-testid="try-page" className="flex h-full flex-col">
@@ -44,6 +46,7 @@ export default function TryPage() {
           </span>
         )}
         <div className="flex-1" />
+        <GuestTemplates store={board} open={pickTemplate} onOpenChange={setPickTemplate} enabled={!v.preview} />
         <Button
           variant="ghost"
           size="sm"
@@ -65,7 +68,7 @@ export default function TryPage() {
             <Whiteboard store={v.viewStore} title={exportTitle} statusLabel={v.preview ? 'Viewing past version' : 'Saved in this browser'} />
           </div>
         </div>
-        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, closable: true, Icon: History }]} />
+        <BoardSidebar panes={[{ id: 'history', label: 'History', content: <HistoryPanel v={v} canWrite />, Icon: History }]} />
       </div>
       <ConfirmModal
         open={confirmClear}
@@ -73,6 +76,7 @@ export default function TryPage() {
         onConfirm={() => {
           board.clear()
           setConfirmClear(false)
+          setPickTemplate(true)
         }}
         title="Clear everything on this board?"
         description="You can undo with ⌘Z / Ctrl+Z, and earlier versions stay in History."

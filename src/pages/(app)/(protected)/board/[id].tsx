@@ -8,15 +8,22 @@ import { useMemo } from 'react'
 import { usePresenceRoom, useQuery, useUser } from 'deepspace'
 import { callAction } from '@/lib/actions'
 import type { SpecPublisher } from '@/components/board/ExportDialog'
-import { ArrowLeft, History } from 'lucide-react'
+import { ArrowLeft, History, ThumbsUp } from 'lucide-react'
 import { Whiteboard } from '@/components/board/Whiteboard'
 import { BoardSidebar } from '@/components/board/BoardSidebar'
 import { useBoard } from '@/components/board/useBoard'
 import { CallRail } from '@/components/call/CallRail'
 import { ShareMenu } from '@/components/sharing/ShareMenu'
+import { BoardTimer } from '@/components/timer/BoardTimer'
+import { ViewOnlyBadge } from '@/components/sharing/ViewOnlyBadge'
 import { HistoryPanel, PreviewBanner } from '@/history/HistoryPanel'
 import { useCloudHistory } from '@/history/stores'
 import { formatVersionTime, useVersioning } from '@/history/useVersioning'
+import { LiveRegion } from '@/components/board/LiveRegion'
+import { useBoardVotes } from '@/votes/useBoardVotes'
+import { VotesPanel } from '@/votes/VotesPanel'
+import { useTemplateSeed } from '@/templates/seed'
+import { useBoardComments } from '@/comments/useBoardComments'
 
 interface Board {
   title: string
@@ -52,24 +59,50 @@ export default function BoardPage() {
           <ArrowLeft className="size-4" />
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
+        {user && <ViewOnlyBadge boardId={board.recordId} userId={user.id} />}
         {user && <ShareMenu boardId={board.recordId} userId={user.id} isOwner={board.data.ownerId === user.id} />}
+        {user && <BoardTimer key={board.recordId} boardId={board.recordId} />}
       </header>
       <BoardWorkspace
         key={board.recordId}
         boardId={board.recordId}
         title={board.data.title}
         userName={user?.name || user?.email || 'Someone'}
+        userId={user?.id}
+        isOwner={!!user && board.data.ownerId === user.id}
       />
     </div>
   )
 }
 
 /** Board + call + history for one board (keyed by board, so state resets per board). */
-function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: string; userName: string }) {
+function BoardWorkspace({
+  boardId,
+  title,
+  userName,
+  userId,
+  isOwner,
+}: {
+  boardId: string
+  title: string
+  userName: string
+  userId?: string
+  isOwner: boolean
+}) {
   const store = useBoard(boardId)
+  useTemplateSeed(boardId, store)
+  const comments = useBoardComments({ boardId, userId: userId ?? '', isOwner, shapes: store.shapes })
   const presence = usePresenceRoom(`board:${boardId}`)
   const history = useCloudHistory(boardId)
   const v = useVersioning({ store, history, authorName: userName })
+  const votes = useBoardVotes({
+    boardId,
+    userId,
+    canEdit: store.canWrite,
+    shapes: store.shapes,
+    peers: presence.peers,
+    presenceConnected: !!presence.connected,
+  })
   const exportTitle = v.preview ? `${title} (version ${formatVersionTime(v.preview.createdAt)})` : title
   const publisher = useMemo<SpecPublisher>(
     () => ({
@@ -92,11 +125,15 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             title={exportTitle}
             presence={presence}
             statusLabel={v.preview ? 'Viewing past version' : undefined}
-            publisher={publisher}
+            publisher={store.canWrite ? publisher : undefined}
+            votes={v.preview ? undefined : votes}
+            comments={v.preview ? undefined : comments.bridge}
           />
+          <LiveRegion message={votes.announcement} testId="votes-announcer" />
         </div>
       </div>
       <BoardSidebar
+        select={comments.select}
         panes={[
           { id: 'call', label: 'Call', content: <CallRail boardId={boardId} displayName={userName} /> },
           {
@@ -104,9 +141,15 @@ function BoardWorkspace({ boardId, title, userName }: { boardId: string; title: 
             label: 'History',
             badge: v.unsaved ? <span aria-label="unsaved changes" className="size-1.5 bg-royal/50" /> : null,
             content: <HistoryPanel v={v} canWrite={store.canWrite} />,
-            closable: true,
             Icon: History,
           },
+          {
+            id: 'votes',
+            label: 'Votes',
+            content: <VotesPanel votes={votes} shapes={store.shapes} />,
+            Icon: ThumbsUp,
+          },
+          comments.pane,
         ]}
       />
     </div>
