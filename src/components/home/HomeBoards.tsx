@@ -15,6 +15,8 @@ import { BoardCardMenu } from './BoardCardMenu'
 import { BoardsToolbar } from './BoardsToolbar'
 import { RenameProjectModal, ShareProjectModal, type ProjectMember } from './ProjectDialogs'
 import { BOARD_DRAG_TYPE, ProjectSidebar, type SidebarProject } from './ProjectSidebar'
+import { ProjectRepoModal } from '@/components/github/RepoControls'
+import { parseStoredRepo } from '@/github/repo'
 import { isArchived, projectCounts, visibleBoards, type HomeView, type ListBoard, type SortKey } from './boardList'
 
 export interface HomeBoard {
@@ -27,6 +29,8 @@ export interface HomeBoard {
 interface Project {
   name: string
   ownerId: string
+  /** GitHub repo JSON (src/github/repo.ts). */
+  repo?: string
 }
 
 interface BoardPin {
@@ -61,6 +65,7 @@ export function HomeBoards({
 
   const [renaming, setRenaming] = useState<SidebarProject | null>(null)
   const [sharing, setSharing] = useState<SidebarProject | null>(null)
+  const [repoFor, setRepoFor] = useState<SidebarProject | null>(null)
   const [deleting, setDeleting] = useState<SidebarProject | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -166,6 +171,7 @@ export function HomeBoards({
         onCreate={(name) => act('projectCreate', { name }, 'Could not create project')}
         onRename={setRenaming}
         onShare={setSharing}
+        onRepo={setRepoFor}
         onDelete={(p) => {
           setDeleting(p)
           setDeleteOpen(true)
@@ -253,6 +259,12 @@ export function HomeBoards({
         onClose={() => setRenaming(null)}
       />
       <ShareProjectModal project={sharing} userId={userId} open={!!sharing} onClose={() => setSharing(null)} />
+      <ProjectRepoModal
+        project={repoFor}
+        repo={parseStoredRepo(projectRows.find((p) => p.recordId === repoFor?.id)?.data.repo)}
+        open={!!repoFor}
+        onClose={() => setRepoFor(null)}
+      />
       <ConfirmModal
         open={deleteOpen}
         onClose={() => {

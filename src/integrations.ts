@@ -30,5 +30,8 @@ export const integrations: Record<
   // Under 'developer' every participant would get the app owner's identity and
   // LiveKit kicks the previous joiner. generate-token is free either way.
   livekit: { billing: 'user' },
+  // Public repo lookups only (src/actions/github.ts). The app owner pays;
+  // repoConnect rate-limits each user so nobody can drain the credits.
+  github: { billing: 'developer' },
   // openai: { billing: 'developer', anonymous: true },
 }

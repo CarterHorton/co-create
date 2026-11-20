@@ -24,10 +24,16 @@ import { useBoardVotes } from '@/votes/useBoardVotes'
 import { VotesPanel } from '@/votes/VotesPanel'
 import { useTemplateSeed } from '@/templates/seed'
 import { useBoardComments } from '@/comments/useBoardComments'
+import { BoardRepoMenu } from '@/components/github/RepoControls'
+import { effectiveRepo, parseStoredRepo, type RepoInfo } from '@/github/repo'
 
 interface Board {
   title: string
   ownerId: string
+  projectId?: string
+  /** GitHub repo columns (src/github/repo.ts). */
+  repo?: string
+  projectRepo?: string
 }
 
 export default function BoardPage() {
@@ -35,6 +41,14 @@ export default function BoardPage() {
   const { records, status } = useQuery<Board>('boards', { orderBy: 'createdAt', orderDir: 'desc' })
   const board = records.find((r) => r.recordId === id)
   const { user } = useUser()
+  const repoJson = board?.data.repo
+  const projectRepoJson = board?.data.projectRepo
+  const projectId = board?.data.projectId
+  const ownRepo = useMemo(() => parseStoredRepo(repoJson), [repoJson])
+  const repo = useMemo(
+    () => effectiveRepo({ repo: repoJson, projectRepo: projectRepoJson, projectId }),
+    [repoJson, projectRepoJson, projectId],
+  )
 
   if (status === 'loading') {
     return <div className="flex h-full items-center justify-center font-mono text-sm text-muted-foreground">Loading board…</div>
@@ -60,6 +74,14 @@ export default function BoardPage() {
         </Link>
         <h1 className="truncate font-display text-lg font-black tracking-[-0.01em]">{board.data.title}</h1>
         {user && <ViewOnlyBadge boardId={board.recordId} userId={user.id} />}
+        {user && (
+          <BoardRepoMenu
+            boardId={board.recordId}
+            isOwner={board.data.ownerId === user.id}
+            own={ownRepo}
+            effective={repo}
+          />
+        )}
         {user && <ShareMenu boardId={board.recordId} userId={user.id} isOwner={board.data.ownerId === user.id} />}
         {user && <BoardTimer key={board.recordId} boardId={board.recordId} />}
       </header>
@@ -70,6 +92,7 @@ export default function BoardPage() {
         userName={user?.name || user?.email || 'Someone'}
         userId={user?.id}
         isOwner={!!user && board.data.ownerId === user.id}
+        repo={repo?.repo ?? null}
       />
     </div>
   )
@@ -82,12 +105,14 @@ function BoardWorkspace({
   userName,
   userId,
   isOwner,
+  repo,
 }: {
   boardId: string
   title: string
   userName: string
   userId?: string
   isOwner: boolean
+  repo: RepoInfo | null
 }) {
   const store = useBoard(boardId)
   useTemplateSeed(boardId, store)
@@ -128,6 +153,7 @@ function BoardWorkspace({
             publisher={store.canWrite ? publisher : undefined}
             votes={v.preview ? undefined : votes}
             comments={v.preview ? undefined : comments.bridge}
+            repo={repo}
           />
           <LiveRegion message={votes.announcement} testId="votes-announcer" />
         </div>

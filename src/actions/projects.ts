@@ -11,7 +11,8 @@
  *                                                project granted is revoked
  *   boardMove      → { boardId, projectId }    — owner files a board ('' = none);
  *                                                it gains the new project's members
- *                                                and loses the old project's grants
+ *                                                and loses the old project's grants;
+ *                                                it inherits the new project's repo
  *   boardArchive   → { boardId, archived }     — owner archives / restores a board
  *   projectShare   → { projectId, friendId }   — owner shares every board in the
  *                                                project with a friend (editor)
@@ -31,7 +32,7 @@ export const MAX_PROJECTS = 200
 /** Boards handled per project in one action. */
 const BOARD_LIMIT = 500
 
-type ProjectRow = { name: string; ownerId: string }
+type ProjectRow = { name: string; ownerId: string; repo?: string }
 type ProjectMember = { projectId: string; ownerId: string; userId: string; name?: string }
 type Grant = { projectId: string; boardId: string; userId: string }
 type Board = BoardRow & { projectId?: string; archived?: boolean | number }
@@ -177,7 +178,8 @@ const projectDelete: ActionHandler<Env> = ({ userId, params, tools }) =>
     const boards = await projectBoards(tools, userId, project.recordId)
     for (const board of boards) {
       await revokeBoardGrants(tools, board, project.recordId)
-      const res = await tools.update('boards', board.recordId, { projectId: '' })
+      // Boards stop inheriting the project's GitHub repo (src/actions/github.ts).
+      const res = await tools.update('boards', board.recordId, { projectId: '', projectRepo: '' })
       if (!res.success) throw new Error(res.error)
     }
     // Grants on boards no longer in the project were dropped when they moved out.
@@ -204,7 +206,8 @@ const boardMove: ActionHandler<Env> = ({ userId, params, tools }) =>
     if (from === to) return { success: true, data: { boardId: board.recordId, projectId: to } }
 
     if (from) await revokeBoardGrants(tools, board, from)
-    const res = await tools.update('boards', board.recordId, { projectId: to })
+    // The board now inherits the new project's GitHub repo, or none (src/actions/github.ts).
+    const res = await tools.update('boards', board.recordId, { projectId: to, projectRepo: target?.data.repo ?? '' })
     if (!res.success) return fail(res.error)
     if (target) {
       for (const m of await activeMembers(tools, target)) {

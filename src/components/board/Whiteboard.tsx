@@ -61,6 +61,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } from './types'
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
+import type { RepoInfo } from '@/github/repo'
 import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
 import { Hint, KeyBadge, SHORTCUTS, formatKeys, type ShortcutId } from './shortcuts'
@@ -186,11 +187,13 @@ interface WhiteboardProps {
   votes?: BoardVoting
   /** Comment badges, the Comment action and panning to threads (signed-in boards). */
   comments?: CommentsBridge
+  /** The board's GitHub repo, for the spec export. */
+  repo?: RepoInfo | null
 }
 
 const NO_PEERS: BoardPresence['peers'] = []
 
-export function Whiteboard({ store, title, presence, statusLabel, publisher, votes, comments }: WhiteboardProps) {
+export function Whiteboard({ store, title, presence, statusLabel, publisher, votes, comments, repo }: WhiteboardProps) {
   const { shapes, canWrite, connected } = store
   const batch = useCallback((fn: () => void) => (store.batch ? store.batch(fn) : fn()), [store])
   const peers = presence?.peers ?? NO_PEERS
@@ -1440,7 +1443,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       )}
 
       {exportOpen && (
-        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} voteCounts={votes?.specCounts} />
+        <ExportDialog title={title} shapes={shapes} publisher={publisher} onClose={() => setExportOpen(false)} voteCounts={votes?.specCounts} repo={repo} />
       )}
     </div>
   )

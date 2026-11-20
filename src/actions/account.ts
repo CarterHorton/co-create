@@ -10,7 +10,9 @@
  *     history, specs, comments, votes, timers, links, access rows, canvas);
  *   - their projects, project shares and board pins;
  *   - their access to other people's boards and projects;
- *   - friendships (both directions), friend codes and rate-limit attempts;
+ *   - friendships (both directions), friend codes and rate-limit attempts
+ *     (GitHub lookups included); repo links live on their boards and
+ *     projects, so they go with them;
  *   - what they created on other people's boards: comments (a root comment
  *     takes its thread with it, as in commentDelete), votes and vote panels
  *     they opened, saved versions and published specs;
@@ -92,6 +94,7 @@ const social: Step = async ({ tools, userId }) => {
   await drain(tools, 'friend_codes', { ownerId: userId })
   await drain(tools, 'friend_code_attempts', { userId })
   await drain(tools, 'board_link_attempts', { userId })
+  await drain(tools, 'github_calls', { userId })
   await drain(tools, 'board_links', { ownerId: userId })
   await drain(tools, 'board_pins', { ownerId: userId })
   return true

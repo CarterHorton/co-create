@@ -53,6 +53,13 @@ export default function Privacy() {
             board timers, and the share links you make.
           </p>
           <p>
+            <B>GitHub repositories.</B> If you connect a public GitHub
+            repository to a board or project, we look it up on GitHub once and store its name, description, default
+            branch and link with the board or project, so the spec export can say where the code lives. Only public
+            repositories can be connected; we never ask for access to your GitHub account or private code. To limit
+            abuse we also briefly record when you look one up.
+          </p>
+          <p>
             <B>Sharing and friends.</B> Who you’ve shared each board with and
             their access level, your friends list, and short-lived friend codes. To stop guessing, we also briefly
             record failed attempts to use a friend code or share link.
@@ -106,6 +113,10 @@ export default function Privacy() {
             </li>
             <li>
               <B>LiveKit</B> — carries live call audio and video.
+            </li>
+            <li>
+              <B>GitHub</B> — when you connect a repository, its name is sent (through DeepSpace) to GitHub to fetch
+              that public repository’s details. Nothing else about you or your boards is sent.
             </li>
             <li>
               <B>Your sign-in provider</B> (such as Google or GitHub) — confirms
