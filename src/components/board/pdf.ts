@@ -8,7 +8,7 @@
  * minimal hand-written PDF: no PDF library needed.
  */
 
-import { arrowBend, arrowGeometry, arrowRoute, shapeColors, shapeText } from './shapes'
+import { arrowBend, arrowGeometry, arrowRoute, arrowSides, shapeColors, shapeText } from './shapes'
 import { drawEntity, drawRelationEnds } from './entityPdf'
 import type { BoardShape } from './types'
 import { UNTITLED_FRAME, frameName, isFrame } from './frame'
@@ -53,7 +53,7 @@ export function boardBounds(shapes: BoardShape[]): Rect | null {
     if (s.type === 'arrow') {
       const from = byId.get(String(s.props.from))
       const to = byId.get(String(s.props.to))
-      const h = from && to ? arrowGeometry(from, to, arrowRoute(s), arrowBend(s, from, to)).handle : undefined
+      const h = from && to ? arrowGeometry(from, to, arrowRoute(s), arrowBend(s, from, to), arrowSides(s)).handle : undefined
       if (h) xs.push(h.x), ys.push(h.y)
       continue
     }
@@ -101,6 +101,34 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): st
   return lines
 }
 
+/** Smallest font size text shrinks to before it is cut off with "…". */
+const MIN_FONT = 10
+
+/**
+ * Wrap `text` into a width × height box, shrinking the font from `size` down
+ * to MIN_FONT until every line fits, so no words silently vanish. Text that
+ * still doesn't fit at MIN_FONT ends its last line with "…". Sets ctx.font.
+ */
+export function fitText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  o: { size: number; weight: string; font: string; width: number; height: number },
+): { lines: string[]; lineH: number } {
+  for (let size = o.size; ; size--) {
+    ctx.font = `${o.weight}${size}px ${o.font}`
+    const lineH = Math.round(size * 1.35)
+    const maxLines = Math.max(1, Math.floor(o.height / lineH))
+    const lines = wrap(ctx, text, o.width)
+    if (lines.length <= maxLines) return { lines, lineH }
+    if (size > MIN_FONT) continue
+    const kept = lines.slice(0, maxLines)
+    let last = kept[kept.length - 1]
+    while (last && ctx.measureText(`${last}…`).width > o.width) last = last.slice(0, -1)
+    kept[kept.length - 1] = `${last.trimEnd()}…`
+    return { lines: kept, lineH }
+  }
+}
+
 /** Draw the whole board on a new canvas. Browser only. */
 export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElement {
   const bounds = boardBounds(shapes)
@@ -136,7 +164,7 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
     const from = byId.get(String(a.props.from))
     const to = byId.get(String(a.props.to))
     if (!from || !to) continue
-    const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to))
+    const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to), arrowSides(a))
     ctx.stroke(new Path2D(geo.d))
     const ang = Math.atan2(geo.tip.y - geo.tail.y, geo.tip.x - geo.tail.x)
     ctx.beginPath()
@@ -172,15 +200,17 @@ export function renderBoard(title: string, shapes: BoardShape[]): HTMLCanvasElem
 
     const text = shapeText(s).trim()
     if (!text) continue
-    const size = s.type === 'text' ? 20 : 16
-    const lineH = Math.round(size * 1.35)
     const padX = s.type === 'sticky' ? 16 : s.type === 'box' ? 12 : 0
     const padY = s.type === 'sticky' ? 16 : s.type === 'box' ? 12 : 0
-    ctx.font = `${s.type === 'sticky' ? '' : 'bold '}${size}px ${font}`
     ctx.fillStyle = colors.color ?? '#0A0A0A'
     ctx.textBaseline = 'top'
-    const maxLines = Math.max(1, Math.floor((s.height - padY * 2) / lineH))
-    const lines = wrap(ctx, text, Math.max(10, s.width - padX * 2)).slice(0, maxLines)
+    const { lines, lineH } = fitText(ctx, text, {
+      size: s.type === 'text' ? 20 : 16,
+      weight: s.type === 'sticky' ? '' : 'bold ',
+      font,
+      width: Math.max(10, s.width - padX * 2),
+      height: s.height - padY * 2,
+    })
     ctx.save()
     ctx.beginPath()
     ctx.rect(s.x, s.y, s.width, s.height)

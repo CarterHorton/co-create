@@ -56,10 +56,43 @@ test('guest board saves locally, reshapes arrows, and exports Markdown', async (
   await page.getByTestId('route-elbow').click()
   await expect(arrow).toHaveAttribute('data-route', 'elbow')
 
+  // Pick the sides it leaves from (Ctrl + arrow key) and enters at (Alt + arrow key)…
+  const path = arrow.locator('path').first()
+  const fromHandle = page.getByTestId('arrow-from-side-handle')
+  const toHandle = page.getByTestId('arrow-to-side-handle')
+  await expect(fromHandle).toHaveAttribute('fill', '#fff') // automatic until pinned
+  const auto = await path.getAttribute('d')
+  await page.keyboard.press('Control+ArrowDown')
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(fromHandle).toHaveAttribute('fill', '#4169E1')
+  await expect(toHandle).toHaveAttribute('fill', '#4169E1')
+  await expect(page.getByTestId('board-announcer')).toContainText('enters at the bottom')
+  const pinned = await path.getAttribute('d')
+  expect(pinned).not.toBe(auto)
+  // Both ends now sit on the notes' bottom edges.
+  const notes = page.getByTestId('shape-sticky')
+  const [n1, n2] = [(await notes.nth(0).boundingBox())!, (await notes.nth(1).boundingBox())!]
+  const centerY = async (h: typeof fromHandle) => {
+    const b = (await h.boundingBox())!
+    return b.y + b.height / 2
+  }
+  expect(Math.abs((await centerY(fromHandle)) - (n1.y + n1.height))).toBeLessThan(3)
+  expect(Math.abs((await centerY(toHandle)) - (n2.y + n2.height))).toBeLessThan(3)
+  // …or by dragging an end handle around its box: up over the second note → enters at the top.
+  const end = (await toHandle.boundingBox())!
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(n2.x + n2.width / 2, n2.y - 30, { steps: 6 })
+  await page.mouse.up()
+  expect(Math.abs((await centerY(toHandle)) - n2.y)).toBeLessThan(3)
+  const dragged = await path.getAttribute('d')
+  expect(dragged).not.toBe(pinned)
+
   // Survives a reload — from localStorage.
   await page.reload()
   await expect(page.getByTestId('shape-sticky')).toHaveCount(2, { timeout: 15_000 })
   await expect(page.getByTestId('board-arrow')).toHaveAttribute('data-route', 'elbow')
+  expect(await page.getByTestId('board-arrow').locator('path').first().getAttribute('d')).toBe(dragged)
   await expect(page.getByTestId('try-title')).toHaveValue('Guest plan')
 
   // Sections overlay matches the export's grouping.

@@ -32,6 +32,9 @@ export const SHORTCUTS = {
   editText: ['Enter'],
   moveShape: ['Arrows'],
   resizeShape: ['Alt', 'Arrows'],
+  // On a selected elbow arrow: the side it leaves from / enters at.
+  arrowStartSide: ['Mod', 'Arrows'],
+  arrowEndSide: ['Alt', 'Arrows'],
   connect: ['C'],
   frame: ['F'],
   noteType: ['Y'],

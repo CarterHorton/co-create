@@ -71,6 +71,8 @@ export interface SpecSection {
   noteCount: number
   /** Named by the user (selection bar) rather than grouped by proximity. */
   assigned: boolean
+  /** Where the title came from: a section name or frame, a text/box label on the board, or the first note. */
+  titledBy: 'name' | 'label' | 'note'
   /** Shape ids in this section (including the title shape). */
   ids: Set<string>
   after: SpecSection[]
@@ -78,6 +80,8 @@ export interface SpecSection {
 }
 
 const DEFAULT_GAP = 60
+/** A group's only note at least this long reads as a description, written as a paragraph. */
+const PROSE_MIN_LENGTH = 120
 
 const textOf = (s: BoardShape) => (typeof s.props.text === 'string' ? s.props.text.trim() : '')
 const LIST_ITEM = /^([-*•]|\d+[.)])\s+/
@@ -239,6 +243,7 @@ export function buildSections(shapes: BoardShape[], opts: SpecOptions = {}): Spe
       subsections,
       noteCount,
       assigned: !!name,
+      titledBy: name ? 'name' : titleFromNote ? 'note' : 'label',
       ids,
       after: [],
       leadsTo: [],
@@ -327,7 +332,7 @@ function readingKey(used: {
   const parts = [
     used.subsections && 'A `###` heading is a subsection: one part of the section above it, built as part of that section.',
     used.sectionWide && 'Notes listed before a section\'s first subsection apply to the whole section.',
-    used.steps && 'Numbered notes are steps, in order.',
+    used.steps && 'Numbered notes are a chain of steps, in order: on the board an arrow joins each step to the next.',
     used.bullets && 'Bulleted notes are things to build, in no set order.',
     used.nested &&
       'Notes indented under another note branch off it, and that note names what they belong to: build every branch unless the note says to pick one.',
@@ -445,6 +450,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   }
   // ── Sections (rendered first, so the key and counts describe what was written) ──
   const body: string[] = []
+  let bulletsUsed = false
   let forwardN = 0
   let loopN = 0
   for (const s of sections) {
@@ -482,7 +488,9 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     // A note that became the section's title keeps its votes here (the heading text is its link anchor).
     const titleVotes = s.titleShape ? (opts.votes?.get(s.titleShape.id) ?? 0) : 0
     if (titleVotes > 0) body.push(`_${plural(titleVotes, 'vote')}_`, '')
-    if (!s.assigned && sections.length > 1) {
+    // A text label or box above the notes names the group on the board; only a group titled by its
+    // own first note has no name there.
+    if (s.titledBy === 'note' && sections.length > 1) {
       body.push("_Not named on the board: these notes are grouped because they sat close together._", '')
     }
     const rel: string[] = []
@@ -507,13 +515,26 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
         const loops = written.filter((w) => w.loop).map((w) => w.text)
         const voteN = opts.votes?.get(n.shape.id) ?? 0
         const voteTag = voteN > 0 ? ` (${plural(voteN, 'vote')})` : ''
-        lines.push(`${pad}${marker} ${specPrefix(n.shape)}${n.head}${voteTag}${loops.length ? ` (${loops.join('; ')})` : ''}`)
+        const lead = marker ? `${marker} ` : ''
+        lines.push(`${pad}${lead}${specPrefix(n.shape)}${n.head}${voteTag}${loops.length ? ` (${loops.join('; ')})` : ''}`)
         const inner = pad + ' '.repeat(marker.length + 1)
         for (const item of n.items) lines.push(`${inner}- ${item}`)
         for (const k of p.L.childrenOf.get(n.shape.id) ?? []) render(noteById.get(k)!, inner, '-')
         for (const w of written) if (!w.loop) lines.push(`${inner}- ${w.text}`)
       }
-      p.L.top.forEach((n, i) => render(n, '', p.L.flow ? `${i + 1}.` : '-'))
+      // A group's only note, when it is long prose with nothing hanging off it, is a description (a
+      // premise, some context), not a one-item list of things to build: write it as a paragraph.
+      // A short lone note ("Charge card") stays a bullet: it is still a task.
+      const only = p.L.top.length === 1 ? p.L.top[0] : null
+      const prose =
+        !!only &&
+        only.head.length >= PROSE_MIN_LENGTH &&
+        !only.items.length &&
+        !p.L.childrenOf.has(only.shape.id) &&
+        !arrows.some((x) => x.props.from === only.shape.id && !p.L.implicit.has(x.id))
+      if (p.L.flow) lines.push(`_${p.L.top.length} steps, each joined to the next by an arrow:_`, '')
+      else if (p.L.top.length && !prose) bulletsUsed = true
+      p.L.top.forEach((n, i) => render(n, '', p.L.flow ? `${i + 1}.` : prose ? '' : '-'))
 
       // Arrows leaving a title (label or box) belong to the section or subsection as a whole.
       const owner = p.sub ? p.sub : s
@@ -542,7 +563,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
     subsections: sections.some((s) => s.subsections.length),
     sectionWide: sections.some((s) => s.subsections.length && s.notes.length),
     steps: layouts.some((l) => l.flow),
-    bullets: layouts.some((l) => !l.flow && l.top.length > 0),
+    bullets: bulletsUsed,
     nested: nestedN > 0,
     forward: forwardN > 0,
     loops: loopN > 0,
@@ -552,13 +573,14 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
   out.push('## Overview', '')
   const how = [
     nestedN && `${nestedN} shown by indenting`,
-    stepN && `${stepN} by step order`,
+    stepN && `${stepN} shown as numbered steps`,
     forwardN && `${forwardN} written as →`,
-    loopN && `${loopN} as ↺`,
+    loopN && `${loopN} written as ↺`,
   ].filter(Boolean)
+  // Always say where the connections went, so none look missing from the sections below.
   out.push(
     `${plural(sections.length, 'section')}, ${plural(noteCount, 'note')}, ${plural(arrows.length, 'connection')}` +
-      (how.length > 1 ? ` (${how.join(', ')})` : '') +
+      (how.length ? ` (${how.join(', ')})` : '') +
       '.',
     '',
   )
