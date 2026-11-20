@@ -154,9 +154,8 @@ export default function Terms() {
         <Section id="liability" title="12. Limitation of liability">
           <p>
             To the fullest extent the law allows, we aren’t liable for any indirect, incidental, special, consequential
-            or punitive damages, or for lost data, profits or goodwill, arising from your use of the Service. Our total
-            liability for any claim about the Service is limited to $50 USD. Some places don’t allow these limits, so
-            they may not all apply to you.
+            or punitive damages, or for lost data, profits or goodwill, arising from your use of the Service. We take 
+            no liability for any action caused.
           </p>
         </Section>
 
