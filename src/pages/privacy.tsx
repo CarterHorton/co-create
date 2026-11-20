@@ -58,6 +58,11 @@ export default function Privacy() {
             record failed attempts to use a friend code or share link.
           </p>
           <p>
+            <B>Email preferences.</B> Whether you’ve turned notification emails off, a random code used in the
+            unsubscribe link of emails we send you, and when you last caused one to be sent (to cap how many anyone
+            can send).
+          </p>
+          <p>
             <B>While you’re on a board.</B> Your name, cursor position and
             what you’re viewing are shown live to other people on the same board. This isn’t saved after you leave.
           </p>
@@ -78,6 +83,11 @@ export default function Privacy() {
             <li>To sign you in and show your boards to you and the people you share them with.</li>
             <li>To sync boards in real time, run calls, and keep version history.</li>
             <li>To notify you inside the app when someone @mentions you.</li>
+            <li>
+              To email you when someone adds you as a friend or shares a board or project with you. These are the only
+              emails we send, never marketing. Every one has an unsubscribe link, and you can turn them off in
+              Settings.
+            </li>
             <li>To prevent abuse (for example, limiting how fast codes can be guessed) and fix problems.</li>
           </ul>
           <p>
@@ -99,7 +109,8 @@ export default function Privacy() {
           </p>
           <ul className="list-disc space-y-1.5 pl-5">
             <li>
-              <B>DeepSpace</B> — app platform: hosting, sign-in and database.
+              <B>DeepSpace</B> — app platform: hosting, sign-in, database, and sending notification emails (your
+              email address, name of the person who shared, and the board or project name).
             </li>
             <li>
               <B>Cloudflare</B> — the network and servers DeepSpace runs on.
@@ -165,6 +176,11 @@ export default function Privacy() {
             on someone else’s board stay on their board. Your sign-in itself is run by DeepSpace and is shared across
             DeepSpace apps, so it isn’t deleted; if you sign in again, you start a new, empty Co-Create account.
           </p>
+          <p>
+            If you unsubscribed from emails, we keep a one-way hash of your email address (not the address itself) on
+            our no-email list, even after you delete your account, so you stay unsubscribed if you come back. Turning
+            emails back on in Settings removes it.
+          </p>
         </Section>
 
         <Section id="choices" title="Your choices and rights">
@@ -173,6 +189,10 @@ export default function Privacy() {
             <li>Edit or delete your boards, comments and votes in the app.</li>
             <li>Download any board as Markdown with <em>Export .md</em>.</li>
             <li>Remove friends and revoke share links or people’s access at any time.</li>
+            <li>
+              Stop notification emails with the unsubscribe link in any of them, or in <B>Settings → Email
+              notifications</B>.
+            </li>
             <li>
               Delete your account and everything in it yourself, any time, in <B>Settings → Delete account</B>.
             </li>

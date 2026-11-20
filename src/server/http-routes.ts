@@ -29,10 +29,12 @@ import {
   nativeAuthToken,
 } from 'deepspace/worker'
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
-import { integrations } from '../integrations.js'
+import { browserMayCall, integrations } from '../integrations.js'
 import type { AppContext, Env } from '../../worker.js'
 import { authorizeLivekitRequest, isLivekitIntegration } from './call-access.js'
 import { canAccessBoard } from './realtime-routes.js'
+import { createActionTools } from './action-routes.js'
+import { unsubscribeByToken } from '../actions/email.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -232,6 +234,16 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     }
   })
 
+  // One-click unsubscribe from a notification email's link (src/pages/unsubscribe.tsx posts here).
+  // No sign-in: the 128-bit token in the link is the proof. Runs as the app owner, RBAC off,
+  // and touches only the token's own user (src/actions/email.ts).
+  app.post('/api/email/unsubscribe', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { token?: unknown } | null
+    const tools = createActionTools(c.env, c.env.OWNER_USER_ID, '')
+    const result = await unsubscribeByToken(tools, body?.token)
+    return c.json(result as unknown as Record<string, unknown>, result.success ? 200 : 400)
+  })
+
   app.all('/api/integrations/:name/:endpoint', async (c) => {
     const integrationName = c.req.param('name')
     // Params arrive decoded, so `..%2F..%2Fapi%2Fusers` would otherwise
@@ -241,6 +253,13 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     if (!target) return c.json({ error: 'Unknown integration' }, 404)
     const config = lookupOwn(integrations, integrationName)
     const billingMode = config?.billing ?? 'developer'
+    // The browser may only reach integrations the app marks `browser: true`, or ones the caller
+    // pays for. Everything the app owner pays for (email, unlisted integrations) is server-side
+    // only, through actions that decide what is sent and to whom; otherwise any signed-in user
+    // could spend the owner's credits on any integration or send email from the app.
+    if (!browserMayCall(integrationName)) {
+      return c.json({ error: 'This integration is not available from the browser' }, 403)
+    }
 
     // Sign-in is required unless the app opts this integration into anonymous
     // use; developer billing would otherwise let any visitor spend the owner's

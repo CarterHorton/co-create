@@ -14,6 +14,7 @@
 
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
+import { appOrigin, sendNotice } from '../email/notify'
 
 /**
  * 5 minutes: long enough to read a code out or type it in without racing a
@@ -141,7 +142,7 @@ const friendCodeCreate: ActionHandler<Env> = async ({ userId, tools }) => {
   return fail('Too many codes in use right now. Try again in a few seconds.', 'busy')
 }
 
-const friendCodeRedeem: ActionHandler<Env> = async ({ userId, params, tools }) => {
+const friendCodeRedeem: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
   const now = Date.now()
 
   const attempts = await queryAll<{ userId: string; at: number }>(tools, 'friend_code_attempts', { userId }, 100)
@@ -177,6 +178,8 @@ const friendCodeRedeem: ActionHandler<Env> = async ({ userId, params, tools }) =
   // Single use.
   await tools.remove('friend_codes', match.recordId)
   await tools.deleteWhere('friend_code_attempts', { userId })
+  // The code's owner hears that someone joined their party.
+  await sendNotice(tools, { senderId: userId, recipientId: friendId, origin: appOrigin(env), notice: { kind: 'friend', fromName: myName } })
 
   return { success: true, data: { friendId, friendName } }
 }
@@ -218,7 +221,7 @@ const friendRemove: ActionHandler<Env> = async ({ userId, params, tools }) => {
   return { success: true, data: { friendId } }
 }
 
-const boardShare: ActionHandler<Env> = async ({ userId, params, tools }) => {
+const boardShare: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
   const board = await loadOwnedBoard(tools, userId, params.boardId)
   if ('success' in board) return board
   const friendId = params.friendId
@@ -228,9 +231,19 @@ const boardShare: ActionHandler<Env> = async ({ userId, params, tools }) => {
     return fail('You can only send boards to people in your party.', 'not_friends')
   }
 
+  const already = (await queryAll(tools, 'team_members', { teamId: board.recordId, userId: friendId }, 1)).length > 0
   await addMember(tools, board.recordId, userId, 'owner')
   await addMember(tools, board.recordId, friendId, 'editor')
   await touchBoard(tools, board)
+  // Only a new share is news: re-sending a board they already have emails nobody.
+  if (!already) {
+    await sendNotice(tools, {
+      senderId: userId,
+      recipientId: friendId,
+      origin: appOrigin(env),
+      notice: { kind: 'board', fromName: await userName(tools, userId), boardTitle: String(board.data.title ?? ''), boardId: board.recordId },
+    })
+  }
   return { success: true, data: { boardId: board.recordId, userId: friendId } }
 }
 

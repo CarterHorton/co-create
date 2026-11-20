@@ -9,6 +9,7 @@ import { linkActions } from './links'
 import { voteActions } from './votes'
 import { commentActions } from './comments'
 import { accountActions } from './account'
+import { emailActions } from './email'
 
 export const actions: Record<string, ActionHandler<Env>> = {
   ...boardActions,
@@ -20,4 +21,5 @@ export const actions: Record<string, ActionHandler<Env>> = {
   ...voteActions,
   ...commentActions,
   ...accountActions,
+  ...emailActions,
 }

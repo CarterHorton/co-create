@@ -6,7 +6,7 @@
  * until it reports done, then signs out and returns to the landing page.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { signOut, useUser } from 'deepspace'
 import {
@@ -19,6 +19,8 @@ import {
   DialogTitle,
   Input,
   Label,
+  Switch,
+  useToast,
 } from '@/components/ui'
 import { callAction } from '@/lib/actions'
 
@@ -57,6 +59,8 @@ export default function SettingsPage() {
           </Button>
         </section>
 
+        <EmailSection />
+
         <section data-testid="delete-account" className="mt-8 rounded-lg border border-destructive/40 bg-card p-6">
           <h2 className="mb-2 text-lg font-semibold">Delete account</h2>
           <p className="text-sm text-muted-foreground">
@@ -82,6 +86,57 @@ export default function SettingsPage() {
 
       <DeleteAccountDialog open={open} onOpenChange={setOpen} />
     </div>
+  )
+}
+
+/**
+ * Email notifications on or off. Off puts your address on the same no-email
+ * list the unsubscribe link in every email uses (src/actions/email.ts).
+ */
+function EmailSection() {
+  const { error } = useToast()
+  const [prefs, setPrefs] = useState<{ subscribed: boolean; email: string | null } | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    callAction<{ subscribed: boolean; email: string | null }>('emailPrefsGet')
+      .then(setPrefs)
+      .catch((err: unknown) => error('Could not load email settings', err instanceof Error ? err.message : String(err)))
+  }, [error])
+
+  const set = async (subscribed: boolean) => {
+    setSaving(true)
+    try {
+      await callAction('emailPrefsSet', { subscribed })
+      setPrefs((p) => (p ? { ...p, subscribed } : p))
+    } catch (err) {
+      error('Could not save email settings', err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section data-testid="email-settings" className="mt-8 rounded-lg border border-border bg-card p-6">
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <h2 className="mb-2 text-lg font-semibold">
+            <Label htmlFor="email-notifications">Email notifications</Label>
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Get an email when someone adds you as a friend or shares a board or project with you.
+            {prefs?.email ? ` Sent to ${prefs.email}.` : ''}
+          </p>
+        </div>
+        <Switch
+          id="email-notifications"
+          data-testid="email-notifications"
+          checked={prefs?.subscribed ?? false}
+          disabled={!prefs || !prefs.email || saving}
+          onCheckedChange={(v) => void set(v)}
+        />
+      </div>
+    </section>
   )
 }
 

@@ -66,12 +66,14 @@ export function registerActionRoutes(app: Hono<AppContext>, resolveAuth: Resolve
     if (!action) return c.json({ error: 'Action not found' }, 404)
     const params = await c.req.json<Record<string, unknown>>()
     const tools = createActionTools(c.env, auth.userId, callerJwt)
-    const result = await action({ userId: auth.userId, params, tools, env: c.env, callerJwt })
+    // The origin this request reached is a host routed to this worker, so emails can link back to it.
+    const env = { ...c.env, REQUEST_ORIGIN: new URL(c.req.url).origin }
+    const result = await action({ userId: auth.userId, params, tools, env, callerJwt })
     return c.json(result as unknown as Record<string, unknown>)
   })
 }
 
-function createActionTools(env: Env, userId: string, callerJwt: string): ActionTools {
+export function createActionTools(env: Env, userId: string, callerJwt: string): ActionTools {
   const stub = env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
 
   // The DO returns ActionResult<unknown>; callers below supply the precise

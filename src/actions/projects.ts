@@ -23,6 +23,7 @@
 
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
+import { appOrigin, sendNotice } from '../email/notify'
 import { MAX_PROJECT_NAME_LENGTH } from '../schemas/projects-schema'
 import { addMember, areFriends, queryAll, touchBoard, type BoardRow, type Row, type TeamMember } from './sharing'
 
@@ -223,7 +224,7 @@ const boardArchive: ActionHandler<Env> = async ({ userId, params, tools }) => {
   return { success: true, data: { boardId: board.recordId, archived: params.archived } }
 }
 
-const projectShare: ActionHandler<Env> = ({ userId, params, tools }) =>
+const projectShare: ActionHandler<Env> = ({ userId, params, tools, env }) =>
   run(async () => {
     const project = await loadOwnedProject(tools, userId, params.projectId)
     if (isResult(project)) return project
@@ -251,6 +252,16 @@ const projectShare: ActionHandler<Env> = ({ userId, params, tools }) =>
     }
     const boards = await projectBoards(tools, userId, project.recordId)
     for (const board of boards) await grantBoard(tools, board, project.recordId, friendId)
+    if (!existing.length) {
+      const me = await tools.get<{ name?: string; email?: string }>('users', userId)
+      const fromName = me.success ? me.data.record.data.name || me.data.record.data.email || 'Someone' : 'Someone'
+      await sendNotice(tools, {
+        senderId: userId,
+        recipientId: friendId,
+        origin: appOrigin(env),
+        notice: { kind: 'project', fromName, projectName: String(project.data.name ?? ''), boards: boards.length },
+      })
+    }
     return { success: true, data: { projectId: project.recordId, userId: friendId, boards: boards.length } }
   })
 

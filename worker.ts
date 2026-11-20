@@ -149,6 +149,11 @@ export interface Env extends DOBindings<typeof __DO_MANIFEST__> {
    * an authenticated app owner/admin. deepspace dev/test set it locally.
    */
   ALLOW_DEBUG_ROUTES?: string
+  /**
+   * Origin of the request an action is serving, set per request by
+   * src/server/action-routes.ts so emails link back to the same site.
+   */
+  REQUEST_ORIGIN?: string
 }
 
 export type AppContext = { Bindings: Env }

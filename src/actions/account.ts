@@ -94,6 +94,10 @@ const social: Step = async ({ tools, userId }) => {
   await drain(tools, 'board_link_attempts', { userId })
   await drain(tools, 'board_links', { ownerId: userId })
   await drain(tools, 'board_pins', { ownerId: userId })
+  // Email: their unsubscribe token and send log. The no-email list keeps only a hash of the
+  // address, not the address, and stays so an unsubscribe still holds if they come back.
+  await drain(tools, 'email_prefs', { userId })
+  await drain(tools, 'email_log', { senderId: userId })
   return true
 }
 

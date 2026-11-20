@@ -4,7 +4,7 @@
  */
 
 export const PRIVACY_CONTACT_EMAIL = 'carterbhortoncbh@gmail.com'
-export const PRIVACY_UPDATED = 'November 18, 2026'
+export const PRIVACY_UPDATED = 'November 19, 2026'
 /** Update whenever src/pages/terms.tsx changes in substance. */
 export const TERMS_UPDATED = 'November 18, 2026'
 export const MINIMUM_AGE = 13

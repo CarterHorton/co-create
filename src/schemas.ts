@@ -24,6 +24,7 @@ import { boardPinsSchema, projectGrantsSchema, projectMembersSchema, projectsSch
 import { boardLinkAttemptsSchema, boardLinksSchema } from './schemas/links-schema'
 import { votePanelsSchema, votesSchema } from './schemas/votes-schema'
 import { commentsSchema, mentionsSchema } from './schemas/comments-schema'
+import { emailLogSchema, emailPrefsSchema, emailSuppressionsSchema } from './schemas/email-schema'
 
 export const schemas: CollectionSchema[] = [
   usersSchema,
@@ -46,4 +47,7 @@ export const schemas: CollectionSchema[] = [
   votePanelsSchema,
   commentsSchema,
   mentionsSchema,
+  emailPrefsSchema,
+  emailSuppressionsSchema,
+  emailLogSchema,
 ]
