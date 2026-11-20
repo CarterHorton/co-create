@@ -39,6 +39,9 @@ export const integrations: Record<
   // Share and friend notices (src/email/notify.ts), sent by actions only. The owner pays
   // ($0.013 per email), capped per sender per day.
   email: { billing: 'developer' },
+  // Public repo lookups only (src/actions/github.ts). The app owner pays;
+  // repoConnect rate-limits each user so nobody can drain the credits.
+  github: { billing: 'developer' },
   // openai: { billing: 'developer', anonymous: true },
 }
 

@@ -32,6 +32,10 @@ export const boardsSchema: CollectionSchema = {
     { name: 'projectId', storage: 'text', interpretation: 'plain' },
     /** Archived boards only show in the Archived view. Set via the boardArchive action. */
     { name: 'archived', storage: 'number', interpretation: { kind: 'boolean' } },
+    /** Connected GitHub repo as JSON (src/github/repo.ts); '' or missing = none. Set via the repo actions. */
+    { name: 'repo', storage: 'text', interpretation: 'plain' },
+    /** Copy of the board's project's repo, kept in step by the actions; used when `repo` is empty. */
+    { name: 'projectRepo', storage: 'text', interpretation: 'plain' },
   ],
   ownerField: 'ownerId',
   teamField: 'teamId',

@@ -25,6 +25,7 @@ import { boardLinkAttemptsSchema, boardLinksSchema } from './schemas/links-schem
 import { votePanelsSchema, votesSchema } from './schemas/votes-schema'
 import { commentsSchema, mentionsSchema } from './schemas/comments-schema'
 import { emailLogSchema, emailPrefsSchema, emailSuppressionsSchema } from './schemas/email-schema'
+import { githubCallsSchema } from './schemas/github-schema'
 
 export const schemas: CollectionSchema[] = [
   usersSchema,
@@ -50,4 +51,5 @@ export const schemas: CollectionSchema[] = [
   emailPrefsSchema,
   emailSuppressionsSchema,
   emailLogSchema,
+  githubCallsSchema,
 ]

@@ -400,3 +400,30 @@ describe('export of a framed chain and a labelled premise (Homeless IT board)', 
     expect(md).toContain('Bulleted notes are things to build')
   })
 })
+
+describe('buildMarkdown repository line', () => {
+  const repo = {
+    fullName: 'octocat/Hello-World',
+    description: 'My first repository on GitHub!',
+    defaultBranch: 'master',
+    url: 'https://github.com/octocat/Hello-World',
+    connectedAt: 1,
+  }
+
+  it('writes the connected repo right under the intro, deterministically', () => {
+    const shapes = [note('r1', 0, 0, 'Login page')]
+    const opts = { now: new Date('2026-11-19'), repo }
+    const md = buildMarkdown('App', shapes, opts)
+    const lines = md.split('\n')
+    expect(lines[0]).toBe('# App')
+    expect(lines[4]).toBe(
+      '**Repository:** [octocat/Hello-World](https://github.com/octocat/Hello-World) (default branch `master`) — My first repository on GitHub!',
+    )
+    expect(buildMarkdown('App', shapes, opts)).toBe(md)
+  })
+
+  it('writes it on an empty board too, and leaves it out with no repo', () => {
+    expect(buildMarkdown('Empty', [], { now: new Date('2026-11-19'), repo })).toContain('**Repository:** [octocat/Hello-World]')
+    expect(buildMarkdown('Empty', [], { now: new Date('2026-11-19') })).not.toContain('Repository')
+  })
+})

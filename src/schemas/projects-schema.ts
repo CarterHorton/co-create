@@ -31,6 +31,8 @@ export const projectsSchema: CollectionSchema = {
   columns: [
     { name: 'name', storage: 'text', interpretation: 'plain', required: true, maxLength: MAX_PROJECT_NAME_LENGTH },
     { name: 'ownerId', storage: 'text', interpretation: 'plain', required: true, immutable: true },
+    /** Connected GitHub repo as JSON (src/github/repo.ts); every board in the project inherits it. */
+    { name: 'repo', storage: 'text', interpretation: 'plain' },
   ],
   ownerField: 'ownerId',
   permissions: { viewer: READ_OWN, member: READ_OWN, admin: READ_OWN },

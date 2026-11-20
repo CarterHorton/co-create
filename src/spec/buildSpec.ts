@@ -19,6 +19,7 @@ import { frameMembership, isFrame } from '@/components/board/frame'
 import { specPrefix } from '@/components/board/noteTypes'
 import { sectionKeyOf, typeSummaries } from './frames'
 import { dataModelMarkdown } from './dataModel'
+import { specRepoLine, type RepoInfo } from '@/github/repo'
 
 export interface SpecOptions {
   /** Max distance (canvas px) between two notes' edges to group them. */
@@ -27,6 +28,8 @@ export interface SpecOptions {
   now?: Date
   /** Vote counts by shape id: written as "(3 votes)" after each voted note. */
   votes?: ReadonlyMap<string, number>
+  /** The board's GitHub repo (its own or its project's), as stored when connected: where the code lives. */
+  repo?: RepoInfo | null
 }
 
 export interface SpecNote {
@@ -443,6 +446,7 @@ export function buildMarkdown(title: string, shapes: BoardShape[], opts: SpecOpt
       `between two notes. Sections and notes are ordered by their arrows; where there are none, by when they were added._`,
     '',
   )
+  if (opts.repo) out.push(specRepoLine(opts.repo), '')
 
   if (sections.length === 0) {
     out.push('_The board has no written notes yet._', '')

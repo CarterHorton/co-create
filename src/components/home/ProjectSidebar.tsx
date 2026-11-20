@@ -6,7 +6,7 @@
  */
 
 import { useState, type DragEvent, type FormEvent, type ReactNode } from 'react'
-import { Archive, Folder, LayoutGrid, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Archive, Folder, GitBranch, LayoutGrid, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import {
   Button,
   DropdownMenu,
@@ -91,6 +91,7 @@ export function ProjectSidebar({
   onCreate,
   onRename,
   onShare,
+  onRepo,
   onDelete,
   onDropBoard,
 }: {
@@ -101,6 +102,7 @@ export function ProjectSidebar({
   onCreate: (name: string) => Promise<boolean>
   onRename: (p: SidebarProject) => void
   onShare: (p: SidebarProject) => void
+  onRepo: (p: SidebarProject) => void
   onDelete: (p: SidebarProject) => void
   onDropBoard: (boardId: string, projectId: string) => void
 }) {
@@ -175,6 +177,9 @@ export function ProjectSidebar({
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onShare(p)} data-testid="project-menu-share">
                       <Users aria-hidden /> Share…
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onRepo(p)} data-testid="project-menu-repo">
+                      <GitBranch aria-hidden /> GitHub repo…
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onClick={() => onDelete(p)} data-testid="project-menu-delete">

@@ -7,6 +7,7 @@ import { buildMarkdown, specFileName } from '@/spec/buildSpec'
 import type { BoardShape } from './types'
 import { boardToPdf } from './pdf'
 import { DataModelExport } from './DataModelExport'
+import type { RepoInfo } from '@/github/repo'
 
 export interface SpecPublisher {
   publish: (spec: { title: string; markdown: string }) => Promise<void>
@@ -20,6 +21,7 @@ export function ExportDialog({
   onClose,
   publisher,
   voteCounts,
+  repo,
 }: {
   title: string
   shapes: BoardShape[]
@@ -27,11 +29,13 @@ export function ExportDialog({
   publisher?: SpecPublisher
   /** Vote counts by note; offers to write them into the spec when there are any. */
   voteCounts?: ReadonlyMap<string, number>
+  /** The board's connected GitHub repo, written near the top of the spec. */
+  repo?: RepoInfo | null
 }) {
   const hasVotes = !!voteCounts?.size
   const [withVotes, setWithVotes] = useState(true)
   const votes = hasVotes && withVotes ? voteCounts : undefined
-  const markdown = useMemo(() => buildMarkdown(title, shapes, { votes }), [title, shapes, votes])
+  const markdown = useMemo(() => buildMarkdown(title, shapes, { votes, repo }), [title, shapes, votes, repo])
   const fileName = specFileName(title)
   const [copied, setCopied] = useState(false)
   const [publishState, setPublishState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
