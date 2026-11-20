@@ -221,11 +221,11 @@ describe('buildMarkdown', () => {
     expect(md).toContain('# Launch plan')
     expect(md).toContain('on 2026-11-17')
     expect(md).toContain('**How to read this:**')
-    expect(md).toContain('2 sections, 2 notes, 1 connection.')
+    expect(md).toContain('2 sections, 2 notes, 1 connection (1 written as →).')
     expect(md).toContain('| 1 | [Auth](#1-auth) | 1 | — |')
     expect(md).toContain('| 2 | [Billing](#2-billing) | 1 | 1 |')
     expect(md).toContain(
-      '## 1. Auth\n\n_Not named on the board: these notes are grouped because they sat close together._\n\n_Leads to: [2. Billing](#2-billing)_',
+      '## 1. Auth\n\n_Leads to: [2. Billing](#2-billing)_',
     )
     // Line breaks inside a box are joined into one line.
     expect(md).toContain('- Email login magic link only\n  - → [2. Billing](#2-billing): Charge card')
@@ -265,7 +265,7 @@ describe('buildMarkdown', () => {
     // No section depends on another, so there's no empty "Comes after" column.
     expect(md).toContain('| # | Section | Notes |\n|---|---|---|\n| 1 | [Authentication](#1-authentication) | 4 |\n')
     // Every connection is accounted for, even the ones shown by layout.
-    expect(md).toContain('2 sections, 8 notes, 7 connections (3 shown by indenting, 3 by step order, 1 as ↺).')
+    expect(md).toContain('2 sections, 8 notes, 7 connections (3 shown by indenting, 3 shown as numbered steps, 1 written as ↺).')
     // Fan-out is nested once, not listed twice.
     expect(md).toContain(
       '## 1. Authentication\n\n- Authentication Options\n  - Auth through GitHub\n  - Auth through Google\n  - Auth through Email\n\n',
@@ -274,6 +274,8 @@ describe('buildMarkdown', () => {
     expect(md).toContain(
       [
         '## 2. Create New Idea',
+        '',
+        '_4 steps, each joined to the next by an arrow:_',
         '',
         '1. Create new board',
         '2. Create blocks and sticky notes!',
@@ -284,7 +286,7 @@ describe('buildMarkdown', () => {
     // Unconnected sections are called out as independent.
     expect(md).toContain("No arrows connect the sections, so the board doesn't say that one depends on another")
     // The key explains only what's used: steps, indents and loops, but no → on this board.
-    expect(md).toContain('**How to read this:** Numbered notes are steps')
+    expect(md).toContain('**How to read this:** Numbered notes are a chain of steps')
     expect(md).not.toContain('starting with `→`')
     expect(md).toContain('Bulleted notes are things to build') // the top-level 'Authentication Options'
     expect(md).not.toMatch(/ +$/m) // no trailing spaces
@@ -342,5 +344,59 @@ describe('names', () => {
     expect(slug('2. Billing & Payments!')).toBe('2-billing--payments')
     expect(specFileName('Launch plan: Q1')).toBe('launch-plan-q1.md')
     expect(specFileName('***')).toBe('board.md')
+  })
+})
+
+describe('export of a framed chain and a labelled premise (Homeless IT board)', () => {
+  const steps = [
+    'Initial Cutscene',
+    'Digs through computers for spare parts',
+    'Builds one to completion',
+    'Brings to coffee shop',
+    'Given first option to sell compute',
+    'End of Tuturial',
+  ]
+  const board = () => {
+    const frame = note('frame', 0, 0, 'Starting Area', 'frame')
+    frame.width = 840
+    frame.height = 460
+    const boxes = steps.map((text, i) => note(`s${i}`, 20 + (i % 3) * 260, 40 + Math.floor(i / 3) * 200, text, 'box'))
+    const label = note('label', 500, 640, 'General Idea', 'text')
+    const premise = note(
+      'premise',
+      500,
+      700,
+      'Homeless IT is a satirical game not intended to replicate real life.\nThe premise follows a homeless guy in a big city. The game starts with a cutscene.',
+      'box',
+      200,
+    )
+    const chain = steps.slice(1).map((_, i) => arrow(`c${i}`, `s${i}`, `s${i + 1}`))
+    return [frame, ...boxes, label, premise, ...chain]
+  }
+
+  it('names the labelled group, writes the premise as prose, and shows the chain as a chain', () => {
+    const md = buildMarkdown('Homeless IT, initial design', board(), { now: new Date('2026-11-20') })
+    expect(md).not.toContain('Not named on the board')
+    expect(md).toContain(
+      '## 2. General Idea\n\nHomeless IT is a satirical game not intended to replicate real life. The premise',
+    )
+    expect(md).toContain(
+      '## 1. Starting Area\n\n_6 steps, each joined to the next by an arrow:_\n\n1. Initial Cutscene\n2. Digs through computers for spare parts',
+    )
+    expect(md).toContain('2 sections, 7 notes, 5 connections (5 shown as numbered steps).')
+    expect(md).toContain('Numbered notes are a chain of steps')
+    expect(md).not.toContain('Bulleted notes')
+  })
+
+  it('keeps a short lone note as a bullet: it is still a task', () => {
+    const shapes = [
+      note('l1', 0, -80, 'Billing', 'text'),
+      note('a', 0, 0, 'Charge card'),
+      note('l2', 2000, -80, 'Auth', 'text'),
+      note('b', 2000, 0, 'Magic link'),
+    ]
+    const md = buildMarkdown('B', shapes, { now: new Date('2026-01-01') })
+    expect(md).toContain('## 1. Billing\n\n- Charge card')
+    expect(md).toContain('Bulleted notes are things to build')
   })
 })

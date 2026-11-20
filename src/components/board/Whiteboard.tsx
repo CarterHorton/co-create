@@ -63,7 +63,7 @@ import type { ArrowRoute, BoardPresence, BoardShape, BoardStore, ShapeKind } fro
 import { ExportDialog, type SpecPublisher } from './ExportDialog'
 import { buildSections, clusterByProximity, sectionNameOf, subsectionNameOf } from '@/spec/buildSpec'
 import { createWheelStepper, stepZoom } from './zoom'
-import { Hint, KeyBadge, SHORTCUTS, type ShortcutId } from './shortcuts'
+import { Hint, KeyBadge, SHORTCUTS, formatKeys, type ShortcutId } from './shortcuts'
 import { kindName, panToShow, readingOrder, shapeName } from './a11y'
 import { CommentButton, CommentsLayer, useCommentsBridge, type CommentsBridge } from '@/comments/WhiteboardComments'
 import { createCoalescer, createLocalLog, describeRemote, diffShapes, type RemoteChange } from './announce'
@@ -79,6 +79,9 @@ import {
   STICKY_COLORS,
   arrowBend,
   arrowGeometry,
+  arrowSides,
+  sideToward,
+  type Side,
   arrowRoute,
   fillOf,
   shapeColors,
@@ -119,6 +122,8 @@ type Drag =
   | { kind: 'marquee'; wx: number; wy: number; base: string[] }
   | { kind: 'resize'; id: string; sx: number; sy: number; ow: number; oh: number }
   | { kind: 'bend'; id: string; sx: number; sy: number; ox: number; oy: number; axis: 'x' | 'y' | 'xy' }
+  /** Dragging an elbow arrow's end around its box to pin it to a side. */
+  | { kind: 'side'; id: string; end: 'from' | 'to'; boxId: string; side: Side | undefined }
 /** What is being text-edited: an existing shape, or one we just asked the server to create. */
 type Editing = { id: string } | { pending: { type: ShapeKind; x: number; y: number } } | null
 
@@ -144,6 +149,8 @@ const ARROW_KEYS: Record<string, [number, number]> = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
 }
+/** Arrow key → the side of a box an elbow arrow end is pinned to (Ctrl/Alt + arrow key). */
+const ARROW_KEY_SIDE: Record<string, Side> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'top', ArrowDown: 'bottom' }
 /** Keyboard move / resize steps (px), and with Shift. */
 const NUDGE = 10
 const NUDGE_BIG = 50
@@ -513,6 +520,13 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     viewportRef.current?.setPointerCapture(e.pointerId)
   }
 
+  function onSidePointerDown(e: ReactPointerEvent, a: BoardShape, end: 'from' | 'to') {
+    e.stopPropagation()
+    if (!canWrite) return
+    drag.current = { kind: 'side', id: a.id, end, boxId: String(a.props[end]), side: arrowSides(a)[end] }
+    viewportRef.current?.setPointerCapture(e.pointerId)
+  }
+
   function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     broadcastCursor(e.clientX, e.clientY)
     const d = drag.current
@@ -521,6 +535,16 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       const w = toWorld(e.clientX, e.clientY)
       setMarquee({ x0: d.wx, y0: d.wy, x1: w.x, y1: w.y })
       setSelected(hitTest(d.wx, d.wy, w.x, w.y, d.base))
+      return
+    }
+    if (d.kind === 'side') {
+      const box = byId.get(d.boxId)
+      if (!box) return
+      const side = sideToward(box, toWorld(e.clientX, e.clientY))
+      if (side !== d.side) {
+        d.side = side
+        update(d.id, { [d.end === 'from' ? 'fromSide' : 'toSide']: side, bend: null })
+      }
       return
     }
     const dx = e.clientX - d.sx
@@ -552,6 +576,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     if (d?.kind === 'move' && !d.moved && d.collapseTo) setSelected([d.collapseTo])
     if (d?.kind === 'move' && d.moved) say('Moved', 'move')
     if (d?.kind === 'resize') say('Resized', 'resize')
+    if (d?.kind === 'side' && d.side) say(`Arrow ${d.end === 'from' ? 'leaves from' : 'enters at'} the ${d.side}`, 'move')
     drag.current = null
     setPanning(false)
     setMarquee(null)
@@ -618,7 +643,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
   const applyRoute = useCallback(
     (id: ArrowRoute) => {
       setRoute(id)
-      for (const a of selectedShapes) if (a.type === 'arrow') update(a.id, { route: id, bend: null })
+      for (const a of selectedShapes) if (a.type === 'arrow') update(a.id, { route: id, bend: null, fromSide: null, toSide: null })
     },
     [selectedShapes, update],
   )
@@ -693,6 +718,22 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
     } else keepInView(s)
   }
 
+  /**
+   * Ctrl (⌘ on a Mac) + arrow key: the side a selected elbow arrow leaves from.
+   * Alt + arrow key: the side it enters at. The keyboard twin of dragging its
+   * round end handles. Returns whether the key was used.
+   */
+  function pinSideByKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; preventDefault: () => void }, a: BoardShape): boolean {
+    const side = ARROW_KEY_SIDE[e.key]
+    const end = e.ctrlKey || e.metaKey ? 'from' : e.altKey ? 'to' : null
+    if (!side || !end || e.shiftKey || ((e.ctrlKey || e.metaKey) && e.altKey)) return false
+    if (a.type !== 'arrow' || arrowRoute(a) !== 'elbow' || !canWrite) return false
+    e.preventDefault()
+    if (arrowSides(a)[end] !== side) update(a.id, { [end === 'from' ? 'fromSide' : 'toSide']: side, bend: null })
+    say(`Arrow ${end === 'from' ? 'leaves from' : 'enters at'} the ${side}`, 'move')
+    return true
+  }
+
   function onShapeKeyDown(e: ReactKeyboardEvent, s: BoardShape) {
     if (e.target !== e.currentTarget || e.nativeEvent.isComposing) return // e.g. keys typed into its text editor
     const mod = e.metaKey || e.ctrlKey
@@ -706,6 +747,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       }
       return
     }
+    if (s.type === 'arrow' && pinSideByKey(e, s)) return
     const dir = ARROW_KEYS[e.key]
     if (dir && !mod) {
       e.preventDefault() // also stops Alt+Left / Alt+Right navigating history
@@ -749,6 +791,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       const mod = e.metaKey || e.ctrlKey
+      // A clicked (not focused) elbow arrow takes the same side keys as a focused one.
+      if (selectedShapes.length === 1 && pinSideByKey(e, selectedShapes[0])) return
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) redo()
@@ -827,7 +871,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [active, canWrite, removeMany, undo, redo, selectedSet, shapes, applyRoute, zoomAtCenter, tool, createAtCenter, votes])
+  }, [active, canWrite, removeMany, undo, redo, selectedSet, selectedShapes, shapes, applyRoute, zoomAtCenter, tool, createAtCenter, votes])
 
   // "Top voted" (Votes pane) asks to show a note: select it, pan to it, focus it.
   const revealSub = votes?.onReveal
@@ -1170,7 +1214,8 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
         F2 edits its text; Enter or Escape finishes. C connects it to another shape with an arrow. Delete removes it. To
         add a shape, press N for a sticky note, B for a box or T for text, then Enter on the canvas. On the canvas itself,
         arrow keys pan the view; plus and minus zoom. F then Enter adds a frame: shapes fully inside a frame move with
-        it. Y changes the selected sticky notes' type: idea, question, decision or risk.
+        it. Y changes the selected sticky notes' type: idea, question, decision or risk. On a selected elbow arrow, Control
+        or Command with arrow keys picks the side it leaves from, and Alt or Option with arrow keys the side it enters at.
         {votes && ' Select two or more sticky notes to start a vote; while a vote is open, U votes for the selected note in it, or removes your vote.'}
         {comments && ' M comments on the selected sticky note.'}
         {' '}D then Enter adds a database table; Enter on a table edits its fields, and Enter on an arrow between two tables sets its cardinality.
@@ -1233,7 +1278,7 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
               const from = byId.get(String(a.props.from))
               const to = byId.get(String(a.props.to))
               if (!from || !to) return null
-              const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to))
+              const geo = arrowGeometry(from, to, arrowRoute(a), arrowBend(a, from, to), arrowSides(a))
               const isActive = selectedSet.has(a.id)
               const hs = 10 / cam.zoom
               return (
@@ -1274,6 +1319,26 @@ export function Whiteboard({ store, title, presence, statusLabel, publisher, vot
                       onPointerDown={(e) => onBendPointerDown(e, a, from, to, geo.axis!)}
                     />
                   )}
+                  {a.id === activeId && canWrite && arrowRoute(a) === 'elbow' &&
+                    (['from', 'to'] as const).map((end) => {
+                      const pt = end === 'from' ? geo.start : geo.tip
+                      return (
+                        <circle
+                          key={end}
+                          data-testid={`arrow-${end}-side-handle`}
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={hs / 2}
+                          fill={arrowSides(a)[end] ? '#4169E1' : '#fff'}
+                          stroke="#000"
+                          strokeWidth={1.5 / cam.zoom}
+                          className="cursor-grab"
+                          onPointerDown={(e) => onSidePointerDown(e, a, end)}
+                        >
+                          <title>{end === 'from' ? `Drag to choose the side it leaves from (${formatKeys(SHORTCUTS.arrowStartSide)})` : `Drag to choose the side it enters at (${formatKeys(SHORTCUTS.arrowEndSide)})`}</title>
+                        </circle>
+                      )
+                    })}
                 </g>
               )
             })}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardShape } from './types'
-import { MAX_SIDE, boardBounds, jpegToPdf, renderSize } from './pdf'
+import { MAX_SIDE, boardBounds, fitText, jpegToPdf, renderSize } from './pdf'
 
 const shape = (id: string, x: number, y: number, width: number, height: number, type = 'sticky', props = {}): BoardShape => ({
   id,
@@ -55,5 +55,35 @@ describe('jpegToPdf', () => {
     const offsets = [...text.slice(xrefAt).matchAll(/^(\d{10}) 00000 n $/gm)].map((m) => Number(m[1]))
     expect(offsets).toHaveLength(5)
     offsets.forEach((o, i) => expect(text.slice(o, o + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`))
+  })
+})
+
+describe('fitText', () => {
+  /** A canvas stand-in where each character is half the font size wide. */
+  const fakeCtx = () => {
+    const ctx = {
+      font: '',
+      measureText: (t: string) => ({ width: t.length * Number(/(\d+)px/.exec(ctx.font)![1]) * 0.5 }),
+    }
+    return ctx as unknown as CanvasRenderingContext2D
+  }
+  const box = { size: 16, weight: 'bold ', font: 'sans', width: 196, height: 40 }
+
+  it('keeps every word by shrinking the font instead of dropping lines', () => {
+    const ctx = fakeCtx()
+    const { lines } = fitText(ctx, 'Digs through computers for spare parts', box)
+    expect(lines.join(' ')).toBe('Digs through computers for spare parts')
+    expect(ctx.font).not.toBe('bold 16px sans')
+  })
+
+  it('leaves text that already fits at its normal size', () => {
+    const ctx = fakeCtx()
+    expect(fitText(ctx, 'Initial Cutscene', box).lines).toEqual(['Initial Cutscene'])
+    expect(ctx.font).toBe('bold 16px sans')
+  })
+
+  it('ends with an ellipsis only when even the smallest size cannot fit', () => {
+    const { lines } = fitText(fakeCtx(), 'word '.repeat(200), { ...box, height: 30 })
+    expect(lines.at(-1)!.endsWith('…')).toBe(true)
   })
 })

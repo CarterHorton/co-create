@@ -74,6 +74,7 @@ Hover any toolbar button to see its shortcut. "Ctrl" is ⌘ on a Mac.
 | `A` | Arrow tool | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Del` | Delete selection | `Ctrl+A` | Select all |
 | `Enter` | Edit selected note (Enter again to finish, Shift+Enter for a new line) | `Space`+drag / middle mouse | Pan |
+| `Ctrl`+arrow keys | Elbow arrow: side it leaves from | `Alt`+arrow keys | Elbow arrow: side it enters at |
 
 ## Handing a board to an agent
 
